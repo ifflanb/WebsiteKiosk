@@ -15,9 +15,15 @@ public sealed class WebsiteKioskConfiguration
 
     public string? ScreenOffUrl { get; set; }
 
+    public string? IntegrationBaseUrl { get; set; }
+
+    public string? IntegrationDeviceId { get; set; }
+
     public string? IntegrationCommandUrl { get; set; }
 
     public string? IntegrationAccessToken { get; set; }
 
     public int IntegrationPollFrequencySeconds { get; set; } = DefaultIntegrationPollFrequencySeconds;
+
+    public bool DebugLoggingEnabled { get; set; }
 }

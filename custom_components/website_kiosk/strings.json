@@ -4,20 +4,46 @@
     "step": {
       "user": {
         "title": "Add kiosk device",
-        "description": "Configure a device that will poll for commands.",
+        "description": "Enter settings for this kiosk device.\n\nWhat to enter:\n• Device Identifier: A unique id used in the command/settings URL path (example: ipad_study).\n• Display Name: Friendly name shown in Home Assistant.\n• Device Access Token: Optional token the kiosk app sends when polling.\n• Rotation website URLs: Enter one URL per line (commas also accepted).\n• Rotation Interval (seconds): Time between website changes.\n• Start URL: Optional URL used by the Load Start URL action.\n• Screen-Off URL: Optional URL shown when Tablet Screen is turned off.",
         "data": {
-          "device_id": "Device ID",
-          "name": "Name",
-          "access_token": "Access token"
+          "device_id": "Device Identifier",
+          "name": "Display Name",
+          "access_token": "Device Access Token (optional)",
+          "websites": "Rotation website URLs",
+          "rotate_frequency_seconds": "Rotation Interval (seconds)",
+          "start_url": "Start URL (optional)",
+          "screen_off_url": "Screen-Off URL (optional)"
+        },
+        "data_description": {
+          "device_id": "Unique ID used in the command/settings endpoint URL for this kiosk.",
+          "name": "Friendly device name shown in Home Assistant.",
+          "access_token": "Optional token required by the kiosk app when polling this device.",
+          "websites": "Enter one URL per line (commas are also accepted).",
+          "rotate_frequency_seconds": "How often to rotate to the next website.",
+          "start_url": "URL loaded when the Load Start URL action is triggered.",
+          "screen_off_url": "URL displayed when the Tablet Screen switch is turned off."
         }
       },
       "reconfigure": {
         "title": "Reconfigure kiosk device",
-        "description": "Update the kiosk device settings.",
+        "description": "Update settings for this kiosk device.\n\nWhat to enter:\n• Device Identifier: A unique id used in the command/settings URL path (example: ipad_study).\n• Display Name: Friendly name shown in Home Assistant.\n• Device Access Token: Optional token the kiosk app sends when polling.\n• Rotation website URLs: Enter one URL per line (commas also accepted).\n• Rotation Interval (seconds): Time between website changes.\n• Start URL: Optional URL used by the Load Start URL action.\n• Screen-Off URL: Optional URL shown when Tablet Screen is turned off.",
         "data": {
-          "device_id": "Device ID",
-          "name": "Name",
-          "access_token": "Access token"
+          "device_id": "Device Identifier",
+          "name": "Display Name",
+          "access_token": "Device Access Token (optional)",
+          "websites": "Rotation website URLs",
+          "rotate_frequency_seconds": "Rotation Interval (seconds)",
+          "start_url": "Start URL (optional)",
+          "screen_off_url": "Screen-Off URL (optional)"
+        },
+        "data_description": {
+          "device_id": "Unique ID used in the command/settings endpoint URL for this kiosk.",
+          "name": "Friendly device name shown in Home Assistant.",
+          "access_token": "Optional token required by the kiosk app when polling this device.",
+          "websites": "Enter one URL per line (commas are also accepted).",
+          "rotate_frequency_seconds": "How often to rotate to the next website.",
+          "start_url": "URL loaded when the Load Start URL action is triggered.",
+          "screen_off_url": "URL displayed when the Tablet Screen switch is turned off."
         }
       }
     },

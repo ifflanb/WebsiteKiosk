@@ -151,6 +151,13 @@ def _normalize_settings(settings: dict[str, Any]) -> dict[str, Any]:
 	else:
 		start_url = None
 
+	sorted_websites = sorted(websites, key=lambda x: int(x.get("order", 0)))
+
+	if start_url is None and sorted_websites:
+		first_url = sorted_websites[0].get("url")
+		if isinstance(first_url, str) and first_url.strip():
+			start_url = first_url.strip()
+
 	screen_off_url = settings.get("screen_off_url")
 	if isinstance(screen_off_url, str):
 		screen_off_url = screen_off_url.strip() or None
@@ -158,7 +165,7 @@ def _normalize_settings(settings: dict[str, Any]) -> dict[str, Any]:
 		screen_off_url = None
 
 	return {
-		"websites": sorted(websites, key=lambda x: int(x.get("order", 0))),
+		"websites": sorted_websites,
 		"rotate_frequency_seconds": rotate_frequency_seconds,
 		"start_url": start_url,
 		"screen_off_url": screen_off_url,

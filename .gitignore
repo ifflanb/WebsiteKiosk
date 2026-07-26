@@ -65,3 +65,6 @@ AppData/**
 !AppData/
 !AppData/scripts/
 !AppData/scripts/**
+
+#website kiosk"
+my rotation urls.txt

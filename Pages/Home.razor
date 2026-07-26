@@ -6,7 +6,6 @@
 @inject WebsiteConfigurationStore ConfigurationStore
 @inject IJSRuntime JsRuntime
 @inject HttpClient HttpClient
-@inject NavigationManager Navigation
 
 <PageTitle>Home</PageTitle>
 
@@ -14,6 +13,10 @@
 {
     <div class="slideshow-stage">
         <iframe id="website-kiosk-frame" class="slideshow-frame" title="Website Kiosk"></iframe>
+        @if (DebugLoggingEnabled)
+        {
+            <div class="slideshow-debug-line">Debug: @DebugStatusText</div>
+        }
 
         @if (IsScreenOff)
         {
@@ -25,30 +28,59 @@
         <button type="button" class="slideshow-overlay-button bottom-center @(IsPaused ? "paused" : string.Empty)" aria-label="@(IsPaused ? "Resume slideshow" : "Pause slideshow")" @onclick="TogglePause">
             @(IsPaused ? "▶" : "❚❚")
         </button>
-        <button type="button" class="slideshow-overlay-button bottom-right" aria-label="Open settings" @onclick="OpenSettingsAsync">⚙</button>
+        <button type="button" class="slideshow-overlay-button bottom-left" aria-label="Open settings" @onclick="StopSlideshowAsync">⚙</button>
     </div>
 }
 else
 {
-    <h1>Website Kiosk</h1>
-
-    <div class="admin-actions">
-        <a class="secondary" href="https://sharptools.io" target="_top" rel="external">SharpTools Sign In</a>
-    </div>
-
     @if (Websites.Count == 0)
     {
-        <p>No configured websites found. Open <a href="/admin">Admin</a> to add URLs.</p>
+        <p>No configured websites found. Configure rotation URLs in the Home Assistant integration settings.</p>
     }
-    else
-    {
-        <p>Configured URLs: @Websites.Count</p>
-        <div class="admin-actions">
-            <button type="button" class="@(IsRunning ? string.Empty : "active-control")" @onclick="StartSlideshowAsync" disabled="@IsRunning">Start Slideshow</button>
-            <button type="button" class="secondary @(IsRunning ? "active-control" : string.Empty)" @onclick="StopSlideshowAsync" disabled="@(!IsRunning)">Stop Slideshow</button>
+
+    <h2>Settings</h2>
+
+    <p>Configured URLs: @Websites.Count</p>
+
+    <p>Enter your Home Assistant base URL and the same device identifier configured in the Home Assistant Website Kiosk integration.</p>
+
+    <div class="admin-settings">
+        <div class="admin-setting-row">
+            <label for="integration-base-url">Home Assistant base URL</label>
+            <div class="admin-connect-row">
+                <input id="integration-base-url" class="admin-url" value="@IntegrationBaseUrl" @oninput="OnIntegrationBaseUrlInput" />
+                <button type="button" class="@ConnectButtonCssClass" @onclick="ConnectToHomeAssistantAsync" disabled="@IsConnectionTestInProgress">@ConnectButtonText</button>
+            </div>
         </div>
-        <p>@StatusMessage</p>
+        <div class="admin-setting-row">
+            <label for="integration-device-id">Device identifier</label>
+            <input id="integration-device-id" class="admin-url" value="@IntegrationDeviceId" @oninput="OnIntegrationDeviceIdInput" />
+        </div>
+        <div class="admin-setting-row">
+            <label for="integration-access-token">Access token (optional)</label>
+            <input id="integration-access-token" class="admin-url" value="@IntegrationAccessToken" @oninput="OnIntegrationAccessTokenInput" />
+        </div>
+        <div class="admin-setting-row">
+            <label for="integration-poll-seconds">Poll frequency (secs)</label>
+            <InputNumber id="integration-poll-seconds" class="admin-order" @bind-Value="IntegrationPollFrequencySeconds" min="1" />
+        </div>
+        <div class="admin-setting-row">
+            <label>
+                <InputCheckbox @bind-Value="DebugLoggingEnabled" />
+                Enable debug logging
+            </label>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(ResolvedCommandUrlPreview))
+    {
+        <p class="admin-note">Command endpoint preview: <code>@ResolvedCommandUrlPreview</code></p>
     }
+
+    <div class="admin-actions">
+        <button type="button" @onclick="SaveIntegrationSettingsAsync">Save settings</button>
+        <button type="button" @onclick="StartSlideshowAsync" disabled="@IsRunning">Start Slideshow</button>
+    </div>
 }
 
 @code {
@@ -68,17 +100,44 @@ else
     private string? PendingCommandNavigationUrl { get; set; }
     private string? StartUrl { get; set; }
     private string? ScreenOffUrl { get; set; }
+    private string? IntegrationBaseUrl { get; set; }
+    private string? IntegrationDeviceId { get; set; }
     private string? IntegrationCommandUrl { get; set; }
     private string? IntegrationSettingsUrl { get; set; }
     private string? IntegrationAccessToken { get; set; }
     private string? LastProcessedCommandSignature { get; set; }
     private string? LastSettingsSignature { get; set; }
+    private string? LastCommandReceived { get; set; }
+    private string LastPollStatus { get; set; } = "Waiting for first poll...";
 
     private bool IsRunning { get; set; }
     private bool IsPaused { get; set; }
     private bool IsScreenOff { get; set; }
+    private bool DebugLoggingEnabled { get; set; }
+    private bool IsConnectionTestInProgress { get; set; }
+    private bool? IsConnectionTestSuccessful { get; set; }
 
     private string StatusMessage { get; set; } = string.Empty;
+    private string? ResolvedCommandUrlPreview => TryBuildCommandUrlSafe(IntegrationBaseUrl, IntegrationDeviceId);
+    private string CurrentPolledCommandUrl => string.IsNullOrWhiteSpace(IntegrationCommandUrl)
+        ? "(not configured)"
+        : IntegrationCommandUrl;
+    private string DebugStatusText => string.IsNullOrWhiteSpace(LastCommandReceived)
+        ? $"{LastPollStatus} | Polling: {CurrentPolledCommandUrl}"
+        : $"Last command received: {LastCommandReceived} | {LastPollStatus} | Polling: {CurrentPolledCommandUrl}";
+    private string ConnectButtonText => IsConnectionTestInProgress
+        ? "Connecting..."
+        : IsConnectionTestSuccessful is true
+            ? "Connected ✓"
+            : IsConnectionTestSuccessful is false
+                ? "Not Connected ✗"
+                : "Test Connection";
+    private string ConnectButtonCssClass => IsConnectionTestSuccessful switch
+    {
+        true => "connect-status success",
+        false => "connect-status failure",
+        _ => "connect-status"
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -88,8 +147,25 @@ else
         StartUrl = saved.StartUrl;
         ScreenOffUrl = saved.ScreenOffUrl;
         IntegrationCommandUrl = saved.IntegrationCommandUrl;
+
+        IntegrationBaseUrl = saved.IntegrationBaseUrl;
+        IntegrationDeviceId = saved.IntegrationDeviceId;
+
+        if (string.IsNullOrWhiteSpace(IntegrationBaseUrl)
+            && string.IsNullOrWhiteSpace(IntegrationDeviceId)
+            && TryParseCommandUrl(saved.IntegrationCommandUrl, out var parsedBaseUrl, out var parsedDeviceId))
+        {
+            IntegrationBaseUrl = parsedBaseUrl;
+            IntegrationDeviceId = parsedDeviceId;
+        }
+        else if (string.IsNullOrWhiteSpace(IntegrationBaseUrl))
+        {
+            IntegrationBaseUrl = saved.IntegrationCommandUrl;
+        }
+
         IntegrationSettingsUrl = BuildSettingsUrl(saved.IntegrationCommandUrl);
         IntegrationAccessToken = saved.IntegrationAccessToken;
+        DebugLoggingEnabled = saved.DebugLoggingEnabled;
 
         Websites = saved.Websites
             .Where(x => IsValidHttpUrl(x.Url))
@@ -103,7 +179,7 @@ else
 
         StatusMessage = Websites.Count == 0
             ? "No URLs available to rotate."
-            : "Click Start Slideshow to begin rotating URLs.";
+            : "Click Start Slideshow to begin rotating URLs that you configured in Home Assistant.";
 
         await LoadIntegrationSettingsAsync();
         StartIntegrationPolling();
@@ -160,8 +236,34 @@ else
 
     private async Task StartSlideshowAsync()
     {
-        if (Websites.Count == 0 || IsRunning)
+        if (IsRunning)
         {
+            return;
+        }
+
+        var resolvedCommandUrl = ResolveCommandUrlInput(IntegrationBaseUrl, IntegrationDeviceId)
+            ?? IntegrationCommandUrl;
+
+        if (string.IsNullOrWhiteSpace(resolvedCommandUrl))
+        {
+            StatusMessage = "Enter a Home Assistant base URL and device identifier before starting the slideshow.";
+            return;
+        }
+
+        if (!string.Equals(IntegrationCommandUrl, resolvedCommandUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            IntegrationCommandUrl = resolvedCommandUrl;
+            IntegrationSettingsUrl = BuildSettingsUrl(resolvedCommandUrl);
+            LastProcessedCommandSignature = null;
+            LastSettingsSignature = null;
+
+            await LoadIntegrationSettingsAsync();
+            StartIntegrationPolling();
+        }
+
+        if (Websites.Count == 0)
+        {
+            StatusMessage = "No rotation URLs are available yet. Configure them in the Home Assistant integration settings.";
             return;
         }
 
@@ -265,13 +367,15 @@ else
 
     private void StartIntegrationPolling()
     {
+        _integrationCancellation?.Cancel();
+        _integrationCancellation?.Dispose();
+        _integrationCancellation = null;
+
         if (string.IsNullOrWhiteSpace(IntegrationCommandUrl))
         {
             return;
         }
 
-        _integrationCancellation?.Cancel();
-        _integrationCancellation?.Dispose();
         _integrationCancellation = new CancellationTokenSource();
         _ = RunIntegrationPollingAsync(_integrationCancellation.Token);
     }
@@ -287,11 +391,20 @@ else
                 var command = await FetchIntegrationCommandAsync(token);
                 if (command is not null)
                 {
+                    LastCommandReceived = string.IsNullOrWhiteSpace(command.Command)
+                        ? DateTimeOffset.Now.ToString("HH:mm:ss")
+                        : $"{command.Command} ({DateTimeOffset.Now:HH:mm:ss})";
+                    LastPollStatus = $"Command received ({DateTimeOffset.Now:HH:mm:ss})";
+
                     await InvokeAsync(async () =>
                     {
                         await HandleIntegrationCommandAsync(command);
                         StateHasChanged();
                     });
+                }
+                else
+                {
+                    await InvokeAsync(StateHasChanged);
                 }
             }
             catch (OperationCanceledException)
@@ -300,6 +413,8 @@ else
             }
             catch
             {
+                LastPollStatus = $"Command poll failed ({DateTimeOffset.Now:HH:mm:ss})";
+                await InvokeAsync(StateHasChanged);
             }
 
             await Task.Delay(TimeSpan.FromSeconds(IntegrationPollFrequencySeconds), token);
@@ -313,41 +428,55 @@ else
             return null;
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, IntegrationCommandUrl);
-        if (!string.IsNullOrWhiteSpace(IntegrationAccessToken))
-        {
-            request.Headers.Authorization = new("Bearer", IntegrationAccessToken);
-        }
+        var commandUrl = AddAccessTokenQuery(IntegrationCommandUrl, IntegrationAccessToken);
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildNoCacheUrl(commandUrl));
 
-        using var response = await HttpClient.SendAsync(request, token);
-        if (!response.IsSuccessStatusCode)
+        HttpResponseMessage response;
+        try
         {
+            response = await HttpClient.SendAsync(request, token);
+        }
+        catch (Exception ex)
+        {
+            LastPollStatus = $"Command poll request failed: {ex.GetType().Name} ({DateTimeOffset.Now:HH:mm:ss})";
             return null;
         }
 
-        var json = await response.Content.ReadAsStringAsync(token);
-        if (string.IsNullOrWhiteSpace(json))
+        using (response)
         {
-            return null;
+            if (!response.IsSuccessStatusCode)
+            {
+                LastPollStatus = $"Command poll HTTP {(int)response.StatusCode} ({DateTimeOffset.Now:HH:mm:ss})";
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(token);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                LastPollStatus = $"Command poll empty body ({DateTimeOffset.Now:HH:mm:ss})";
+                return null;
+            }
+
+            var command = ParseCommand(json);
+            if (command is null)
+            {
+                LastPollStatus = $"Command poll no command ({DateTimeOffset.Now:HH:mm:ss})";
+                return null;
+            }
+
+            var signature = string.IsNullOrWhiteSpace(command.Id)
+                ? json.Trim()
+                : command.Id.Trim();
+
+            if (string.Equals(signature, LastProcessedCommandSignature, StringComparison.Ordinal))
+            {
+                LastPollStatus = $"Command poll duplicate ignored ({DateTimeOffset.Now:HH:mm:ss})";
+                return null;
+            }
+
+            LastProcessedCommandSignature = signature;
+            return command;
         }
-
-        var command = ParseCommand(json);
-        if (command is null)
-        {
-            return null;
-        }
-
-        var signature = string.IsNullOrWhiteSpace(command.Id)
-            ? json.Trim()
-            : command.Id.Trim();
-
-        if (string.Equals(signature, LastProcessedCommandSignature, StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        LastProcessedCommandSignature = signature;
-        return command;
     }
 
     private async Task LoadIntegrationSettingsAsync(CancellationToken token = default)
@@ -357,13 +486,21 @@ else
             return;
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, IntegrationSettingsUrl);
-        if (!string.IsNullOrWhiteSpace(IntegrationAccessToken))
+        var settingsUrl = AddAccessTokenQuery(IntegrationSettingsUrl, IntegrationAccessToken);
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildNoCacheUrl(settingsUrl));
+
+        HttpResponseMessage response;
+        try
         {
-            request.Headers.Authorization = new("Bearer", IntegrationAccessToken);
+            response = await HttpClient.SendAsync(request, token);
+        }
+        catch
+        {
+            return;
         }
 
-        using var response = await HttpClient.SendAsync(request, token);
+        using (response)
+        {
         if (!response.IsSuccessStatusCode)
         {
             return;
@@ -389,6 +526,7 @@ else
 
         ApplyIntegrationSettings(doc.RootElement);
         LastSettingsSignature = signature;
+        }
     }
 
     private void ApplyIntegrationSettings(JsonElement root)
@@ -476,6 +614,23 @@ else
         return builder.Uri.ToString();
     }
 
+    private static string BuildNoCacheUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return url;
+        }
+
+        var builder = new UriBuilder(uri);
+        var existingQuery = builder.Query.TrimStart('?');
+        var cacheBuster = $"_ts={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+        builder.Query = string.IsNullOrWhiteSpace(existingQuery)
+            ? cacheBuster
+            : $"{existingQuery}&{cacheBuster}";
+
+        return builder.Uri.ToString();
+    }
+
     private static KioskIntegrationCommand? ParseCommand(string json)
     {
         using var doc = JsonDocument.Parse(json);
@@ -552,7 +707,7 @@ else
             .Replace('-', '_')
             .Replace(' ', '_');
 
-        return normalized switch
+        var mapped = normalized switch
         {
             "kiosk_load_url" or "load_url" or "load_ur1" => "load_url",
             "tablet_load_start_url" or "button_tablet_load_start_url" or "load_start_url" => "load_start_url",
@@ -560,6 +715,32 @@ else
             "kiosk_start_application" or "start_application" => "start_application",
             _ => normalized
         };
+
+        if (mapped == normalized)
+        {
+            if (normalized.Contains("load_start_url", StringComparison.Ordinal))
+            {
+                return "load_start_url";
+            }
+
+            if (normalized.Contains("load_url", StringComparison.Ordinal))
+            {
+                return "load_url";
+            }
+
+            if (normalized.Contains("start_application", StringComparison.Ordinal))
+            {
+                return "start_application";
+            }
+
+            if (normalized.Contains("tablet_screen", StringComparison.Ordinal)
+                || normalized.Contains("screen_switch", StringComparison.Ordinal))
+            {
+                return "screen_switch";
+            }
+        }
+
+        return mapped;
     }
 
     private void ApplyScreenSwitch(KioskIntegrationCommand command)
@@ -599,9 +780,17 @@ else
 
     private async Task NavigateToStartUrlAsync()
     {
+        await LoadIntegrationSettingsAsync();
+
         var target = IsValidHttpUrl(StartUrl)
             ? StartUrl
             : Websites.FirstOrDefault()?.Url;
+
+        if (!IsValidHttpUrl(target))
+        {
+            StatusMessage = "Load Start URL requested, but no valid Start URL or rotation URL is available.";
+            return;
+        }
 
         await NavigateToExplicitUrlAsync(target);
     }
@@ -715,10 +904,180 @@ else
         return false;
     }
 
-    private async Task OpenSettingsAsync()
+    private async Task ConnectToHomeAssistantAsync()
     {
-        await StopSlideshowAsync();
-        Navigation.NavigateTo("/admin");
+        var resolvedCommandUrl = ResolveCommandUrlInput(IntegrationBaseUrl, IntegrationDeviceId);
+        if (string.IsNullOrWhiteSpace(resolvedCommandUrl))
+        {
+            IsConnectionTestSuccessful = false;
+            StatusMessage = "Enter a valid Home Assistant base URL and device identifier before connecting.";
+            return;
+        }
+
+        IntegrationCommandUrl = resolvedCommandUrl;
+        IntegrationSettingsUrl = BuildSettingsUrl(resolvedCommandUrl);
+        if (string.IsNullOrWhiteSpace(IntegrationSettingsUrl))
+        {
+            IsConnectionTestSuccessful = false;
+            StatusMessage = "Unable to build Home Assistant settings endpoint from the current values.";
+            return;
+        }
+
+        IsConnectionTestInProgress = true;
+        StatusMessage = "Connecting to Home Assistant...";
+
+        try
+        {
+            var integrationProbeUrls = new[]
+            {
+                IntegrationSettingsUrl,
+                resolvedCommandUrl,
+            }
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+            foreach (var checkUrl in integrationProbeUrls)
+            {
+                var probeUrl = AddAccessTokenQuery(checkUrl, IntegrationAccessToken);
+                try
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Get, BuildNoCacheUrl(probeUrl));
+                    using var response = await HttpClient.SendAsync(request);
+
+                    IsConnectionTestSuccessful = true;
+                    StatusMessage = response.IsSuccessStatusCode
+                        ? $"Connected to Home Assistant integration endpoint: {checkUrl}"
+                        : $"Integration endpoint reached ({(int)response.StatusCode} {response.ReasonPhrase}): {checkUrl}";
+                    return;
+                }
+                catch
+                {
+                }
+            }
+
+            var baseUrl = NormalizeOptionalHttpUrl(IntegrationBaseUrl);
+            if (!string.IsNullOrWhiteSpace(baseUrl))
+            {
+                try
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Get, BuildNoCacheUrl(baseUrl));
+                    using var response = await HttpClient.SendAsync(request);
+
+                    IsConnectionTestSuccessful = false;
+                    StatusMessage = $"Base URL is reachable but integration endpoints are not. Check device id/path/CORS. Base response: {(int)response.StatusCode} {response.ReasonPhrase}.";
+                    return;
+                }
+                catch
+                {
+                }
+            }
+
+            IsConnectionTestSuccessful = false;
+            StatusMessage = "Connection failed. Check HA URL, CORS origin, and HTTPS certificate trust on this device.";
+        }
+        finally
+        {
+            IsConnectionTestInProgress = false;
+        }
+    }
+
+    private void ResetConnectionTestState()
+    {
+        IsConnectionTestSuccessful = null;
+    }
+
+    private void OnIntegrationBaseUrlInput(ChangeEventArgs args)
+    {
+        IntegrationBaseUrl = args.Value?.ToString();
+        ResetConnectionTestState();
+    }
+
+    private void OnIntegrationDeviceIdInput(ChangeEventArgs args)
+    {
+        IntegrationDeviceId = args.Value?.ToString();
+        ResetConnectionTestState();
+    }
+
+    private void OnIntegrationAccessTokenInput(ChangeEventArgs args)
+    {
+        IntegrationAccessToken = args.Value?.ToString();
+        ResetConnectionTestState();
+    }
+
+    private async Task SaveIntegrationSettingsAsync()
+    {
+        try
+        {
+            var configuration = await ConfigurationStore.LoadAsync();
+
+            configuration.IntegrationBaseUrl = string.IsNullOrWhiteSpace(IntegrationBaseUrl)
+                ? null
+                : IntegrationBaseUrl.Trim();
+            configuration.IntegrationDeviceId = string.IsNullOrWhiteSpace(IntegrationDeviceId)
+                ? null
+                : IntegrationDeviceId.Trim();
+
+            var resolvedCommandUrl = ResolveCommandUrlInput(IntegrationBaseUrl, IntegrationDeviceId);
+            if (string.IsNullOrWhiteSpace(resolvedCommandUrl))
+            {
+                await ConfigurationStore.SaveAsync(configuration);
+                StatusMessage = "Enter a valid Home Assistant base URL and device identifier.";
+                return;
+            }
+
+            if (TryParseCommandUrl(resolvedCommandUrl, out var parsedBaseUrl, out var parsedDeviceId))
+            {
+                IntegrationBaseUrl = parsedBaseUrl;
+                IntegrationDeviceId = parsedDeviceId;
+            }
+
+            configuration.IntegrationCommandUrl = resolvedCommandUrl;
+            configuration.IntegrationAccessToken = string.IsNullOrWhiteSpace(IntegrationAccessToken)
+                ? null
+                : IntegrationAccessToken.Trim();
+            configuration.IntegrationPollFrequencySeconds = IntegrationPollFrequencySeconds <= 0
+                ? WebsiteKioskConfiguration.DefaultIntegrationPollFrequencySeconds
+                : IntegrationPollFrequencySeconds;
+            configuration.DebugLoggingEnabled = DebugLoggingEnabled;
+
+            await ConfigurationStore.SaveAsync(configuration);
+
+            var reloadedConfiguration = await ConfigurationStore.LoadAsync();
+            var savedCommandUrl = reloadedConfiguration.IntegrationCommandUrl;
+            if (!string.Equals(savedCommandUrl, configuration.IntegrationCommandUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                StatusMessage = "Save failed: browser storage did not persist the updated integration settings.";
+                return;
+            }
+
+            IntegrationCommandUrl = configuration.IntegrationCommandUrl;
+            IntegrationAccessToken = configuration.IntegrationAccessToken;
+            IntegrationPollFrequencySeconds = configuration.IntegrationPollFrequencySeconds;
+            DebugLoggingEnabled = configuration.DebugLoggingEnabled;
+            IntegrationSettingsUrl = BuildSettingsUrl(configuration.IntegrationCommandUrl);
+            LastProcessedCommandSignature = null;
+            LastSettingsSignature = null;
+
+            try
+            {
+                await LoadIntegrationSettingsAsync();
+            }
+            catch
+            {
+                StatusMessage = "Settings saved, but Home Assistant could not be reached. Check URL/CORS and try again.";
+            }
+
+            StartIntegrationPolling();
+            if (!(StatusMessage?.StartsWith("Settings saved, but", StringComparison.Ordinal) ?? false))
+            {
+                StatusMessage = $"Integration settings saved: {resolvedCommandUrl}";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Save failed: {ex.Message}";
+        }
     }
 
     private async Task NavigateToCurrentUrlAsync()
@@ -737,6 +1096,131 @@ else
     {
         return Uri.TryCreate(value, UriKind.Absolute, out var uri)
             && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+    }
+
+    private static string? NormalizeOptionalHttpUrl(string? value)
+    {
+        var candidate = value?.Trim();
+        return IsValidHttpUrl(candidate) ? candidate : null;
+    }
+
+    private static string? ResolveCommandUrlInput(string? baseUrlOrEndpoint, string? deviceId)
+    {
+        var normalizedInput = NormalizeOptionalHttpUrl(baseUrlOrEndpoint);
+        if (string.IsNullOrWhiteSpace(normalizedInput))
+        {
+            return null;
+        }
+
+        if (TryParseCommandUrl(normalizedInput, out var parsedBaseUrl, out var parsedDeviceId))
+        {
+            var effectiveDeviceId = string.IsNullOrWhiteSpace(deviceId)
+                ? parsedDeviceId
+                : deviceId.Trim();
+
+            return TryBuildCommandUrlSafe(parsedBaseUrl, effectiveDeviceId);
+        }
+
+        return TryBuildCommandUrlSafe(normalizedInput, deviceId);
+    }
+
+    private static string? TryBuildCommandUrlSafe(string? baseUrl, string? deviceId)
+    {
+        try
+        {
+            return BuildCommandUrl(baseUrl, deviceId);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? BuildCommandUrl(string? baseUrl, string? deviceId)
+    {
+        var normalizedBaseUrl = NormalizeOptionalHttpUrl(baseUrl);
+        var normalizedDeviceId = deviceId?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedBaseUrl) || string.IsNullOrWhiteSpace(normalizedDeviceId))
+        {
+            return null;
+        }
+
+        if (!Uri.TryCreate(normalizedBaseUrl, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        var builder = new UriBuilder(uri);
+        builder.Query = string.Empty;
+        builder.Path = CombinePaths(builder.Path, $"api/website_kiosk/command/{Uri.EscapeDataString(normalizedDeviceId)}");
+        return builder.Uri.ToString();
+    }
+
+    private static bool TryParseCommandUrl(string? commandUrl, out string? baseUrl, out string? deviceId)
+    {
+        baseUrl = null;
+        deviceId = null;
+
+        if (!Uri.TryCreate(commandUrl, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        var path = uri.AbsolutePath;
+        var marker = "/api/website_kiosk/command/";
+        var markerIndex = path.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+
+        if (markerIndex < 0)
+        {
+            return false;
+        }
+
+        var encodedDeviceId = path[(markerIndex + marker.Length)..].Trim('/');
+        if (string.IsNullOrWhiteSpace(encodedDeviceId))
+        {
+            return false;
+        }
+
+        var prefixPath = path[..markerIndex].TrimEnd('/');
+        var builder = new UriBuilder(uri)
+        {
+            Query = string.Empty,
+            Path = string.IsNullOrWhiteSpace(prefixPath) ? "/" : prefixPath,
+        };
+
+        baseUrl = builder.Uri.ToString().TrimEnd('/');
+        deviceId = Uri.UnescapeDataString(encodedDeviceId);
+        return true;
+    }
+
+    private static string CombinePaths(string basePath, string relativePath)
+    {
+        var left = string.IsNullOrWhiteSpace(basePath) ? string.Empty : basePath.TrimEnd('/');
+        var right = relativePath.TrimStart('/');
+
+        if (string.IsNullOrEmpty(left))
+        {
+            return $"/{right}";
+        }
+
+        return $"{left}/{right}";
+    }
+
+    private static string AddAccessTokenQuery(string url, string? accessToken)
+    {
+        if (string.IsNullOrWhiteSpace(accessToken) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return url;
+        }
+
+        var builder = new UriBuilder(uri);
+        var query = builder.Query.TrimStart('?');
+        var tokenPart = $"access_token={Uri.EscapeDataString(accessToken.Trim())}";
+        builder.Query = string.IsNullOrWhiteSpace(query)
+            ? tokenPart
+            : $"{query}&{tokenPart}";
+
+        return builder.Uri.ToString();
     }
 
     public void Dispose()

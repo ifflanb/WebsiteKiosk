@@ -130,6 +130,12 @@ public sealed class WebsiteConfigurationStore(IJSRuntime jsRuntime, HttpClient h
         configuration.ScreenOffUrl = string.IsNullOrWhiteSpace(configuration.ScreenOffUrl)
             ? null
             : configuration.ScreenOffUrl.Trim();
+        configuration.IntegrationBaseUrl = string.IsNullOrWhiteSpace(configuration.IntegrationBaseUrl)
+            ? null
+            : configuration.IntegrationBaseUrl.Trim();
+        configuration.IntegrationDeviceId = string.IsNullOrWhiteSpace(configuration.IntegrationDeviceId)
+            ? null
+            : configuration.IntegrationDeviceId.Trim();
         configuration.IntegrationCommandUrl = string.IsNullOrWhiteSpace(configuration.IntegrationCommandUrl)
             ? null
             : configuration.IntegrationCommandUrl.Trim();

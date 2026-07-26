@@ -51,8 +51,21 @@
                 }
             };
 
+            const hasKioskQueryParam = (value) => {
+                try {
+                    const url = new URL(value);
+                    return url.searchParams.has("kiosk");
+                } catch {
+                    return false;
+                }
+            };
+
             const trySharpToolsClientSideNavigate = (frame, previousUrl, nextUrl) => {
                 if (!frame?.contentWindow || !isSharpToolsDashboardUrl(previousUrl) || !isSharpToolsDashboardUrl(nextUrl)) {
+                    return false;
+                }
+
+                if (hasKioskQueryParam(previousUrl) || hasKioskQueryParam(nextUrl)) {
                     return false;
                 }
 

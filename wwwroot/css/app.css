@@ -2,8 +2,26 @@
     outline: 1px solid #26b050;
 }
 
+.debug-line {
+    margin-top: 0.35rem;
+    font-size: 0.85rem;
+    color: #334155;
+}
+
 .invalid {
     outline: 1px solid red;
+}
+
+.slideshow-debug-line {
+    position: absolute;
+    left: 12px;
+    top: 12px;
+    z-index: 9999;
+    padding: 0.25rem 0.45rem;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.55);
+    color: #ffffff;
+    font-size: 0.75rem;
 }
 
 .validation-message {
@@ -110,12 +128,6 @@ code {
     color: #ffffff;
 }
 
-.app-branding-logo {
-    width: 32px;
-    height: 32px;
-    object-fit: contain;
-}
-
 .app-branding-name {
     font-weight: 700;
     letter-spacing: 0.01em;
@@ -201,6 +213,16 @@ code {
     width: 100%;
 }
 
+.admin-connect-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.admin-connect-row .admin-url {
+    flex: 1;
+}
+
 button,
 a.secondary {
     padding: 0.5rem 0.9rem;
@@ -224,6 +246,25 @@ button.active-control,
 button.secondary.active-control {
     background-color: #2a7de1;
     border-color: #2a7de1;
+    color: #ffffff;
+}
+
+button.connect-status {
+    width: 140px;
+    justify-content: center;
+    text-align: center;
+    gap: 0.25rem;
+}
+
+button.connect-status.success {
+    background-color: #1f7a35;
+    border-color: #1f7a35;
+    color: #ffffff;
+}
+
+button.connect-status.failure {
+    background-color: #b3261e;
+    border-color: #b3261e;
     color: #ffffff;
 }
 
@@ -306,6 +347,13 @@ button.secondary.active-control {
 
 .slideshow-overlay-button.bottom-right {
     right: 16px;
+    bottom: 16px;
+    font-size: 26px;
+    -webkit-text-stroke: 0;
+}
+
+.slideshow-overlay-button.bottom-left {
+    left: 16px;
     bottom: 16px;
     font-size: 26px;
     -webkit-text-stroke: 0;

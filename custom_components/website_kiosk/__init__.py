@@ -7,6 +7,10 @@ from homeassistant.core import HomeAssistant
 
 from .const import (
 	ATTR_ACCESS_TOKEN,
+	ATTR_ROTATE_FREQUENCY_SECONDS,
+	ATTR_SCREEN_OFF_URL,
+	ATTR_START_URL,
+	ATTR_WEBSITES,
 	CONF_DEVICE_ID,
 	DATA_ENTRY_DEVICE,
 	DATA_HTTP_VIEW_REGISTERED,
@@ -71,6 +75,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 		if entry.entry_id not in domain_data:
 			_LOGGER.error("Duplicate device_id '%s' already configured", device_id)
 			return False
+
+	store.set_settings(
+		device_id,
+		{
+			"websites": entry.data.get(ATTR_WEBSITES, []),
+			"rotate_frequency_seconds": entry.data.get(ATTR_ROTATE_FREQUENCY_SECONDS, 30),
+			"start_url": entry.data.get(ATTR_START_URL),
+			"screen_off_url": entry.data.get(ATTR_SCREEN_OFF_URL),
+		},
+	)
 
 	domain_data.setdefault(DATA_SCREEN_STATE, {})
 	domain_data[DATA_SCREEN_STATE].setdefault(device_id, True)
