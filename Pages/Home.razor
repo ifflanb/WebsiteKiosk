@@ -1,13 +1,6 @@
 ﻿@page "/"
-@implements IDisposable
-@using System.Text.Json
-@using WebsiteKiosk.Models
-@using WebsiteKiosk.Services
-@inject WebsiteConfigurationStore ConfigurationStore
-@inject IJSRuntime JsRuntime
-@inject HttpClient HttpClient
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Website Kiosk</PageTitle>
 
 @if (IsRunning)
 {
@@ -23,1211 +16,132 @@
             <div class="slideshow-screen-off" aria-hidden="true"></div>
         }
 
-        <button type="button" class="slideshow-overlay-button left" aria-label="Previous URL" @onclick="GoPreviousAsync">&#8249;</button>
-        <button type="button" class="slideshow-overlay-button right" aria-label="Next URL" @onclick="GoNextAsync">&#8250;</button>
-        <button type="button" class="slideshow-overlay-button bottom-center @(IsPaused ? "paused" : string.Empty)" aria-label="@(IsPaused ? "Resume slideshow" : "Pause slideshow")" @onclick="TogglePause">
-            @(IsPaused ? "▶" : "❚❚")
-        </button>
-        <button type="button" class="slideshow-overlay-button bottom-left" aria-label="Open settings" @onclick="StopSlideshowAsync">⚙</button>
+        @if (ShowArrowOverlayButtons)
+        {
+            <button type="button" class="slideshow-overlay-button left" aria-label="Previous URL" @onclick="GoPreviousAsync">&#8249;</button>
+            <button type="button" class="slideshow-overlay-button right" aria-label="Next URL" @onclick="GoNextAsync">&#8250;</button>
+        }
+
+        @if (ShowPauseOverlayButton)
+        {
+            <button type="button" class="slideshow-overlay-button bottom-center @(IsPaused ? "paused" : string.Empty)" aria-label="@(IsPaused ? "Resume slideshow" : "Pause slideshow")" @onclick="TogglePause">
+                @(IsPaused ? "▶" : "❚❚")
+            </button>
+        }
+
+        @if (ShowSettingsOverlayButton)
+        {
+            <button type="button" class="slideshow-overlay-button bottom-left" aria-label="Open settings" @onclick="StopSlideshowAsync">⚙</button>
+        }
+        else
+        {
+            <button type="button"
+                    class="slideshow-settings-hotspot"
+                    aria-label="Hidden settings hotspot"
+                    title="Double-tap here to open settings"
+                    @ontouchend="OnSettingsHotspotTouchEnd"
+                    @ondblclick="OnSettingsHotspotDoubleClick">
+            </button>
+        }
     </div>
 }
 else
 {
-    @if (Websites.Count == 0)
-    {
-        <p>No configured websites found. Configure rotation URLs in the Home Assistant integration settings.</p>
-    }
+    <section class="kiosk-panel card shadow-sm border-0">
+        <div class="card-body p-4">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
+                <div>
+                    <h2 class="h4 mb-1">Settings</h2>
+                    <p class="text-muted mb-0">Configure your Home Assistant connection for this kiosk.</p>
+                </div>
+            </div>
 
-    <h2>Settings</h2>
+            @if (Websites.Count > 0)
+            {
+                <details class="mb-3">
+                    <summary class="fw-semibold">Rotation website URLs (@Websites.Count)</summary>
+                    <ul class="list-group list-group-flush mt-2">
+                        @foreach (var website in Websites.OrderBy(w => w.Order))
+                        {
+                            <li class="list-group-item px-0 py-2 text-break">
+                                <small class="text-muted me-2">#@website.Order</small>@website.Url
+                            </li>
+                        }
+                    </ul>
+                </details>
+            }
 
-    <p>Configured URLs: @Websites.Count</p>
+            @if (Websites.Count == 0)
+            {
+                <div class="alert alert-warning" role="alert">
+                    No configured websites found. Configure rotation URLs in the Home Assistant integration settings.
+                </div>
+            }
 
-    <p>Enter your Home Assistant base URL and the same device identifier configured in the Home Assistant Website Kiosk integration.</p>
+            <div class="admin-settings">
+                <div class="admin-setting-row">
+                    <label for="integration-base-url" class="form-label mb-1">Home Assistant base URL</label>
+                    <div class="admin-connect-row">
+                        <input id="integration-base-url" class="admin-url form-control" value="@IntegrationBaseUrl" @oninput="OnIntegrationBaseUrlInput" />
+                        <button type="button" class="@ConnectButtonCssClass" @onclick="ConnectToHomeAssistantAsync" disabled="@IsConnectionTestInProgress">@ConnectButtonText</button>
+                    </div>
+                    <small class="form-text text-muted">The root URL of your Home Assistant instance, for example: https://homeassistant.local:8123.</small>
+                </div>
+                <div class="admin-setting-row">
+                    <label for="integration-device-id" class="form-label mb-1">Device identifier</label>
+                    <input id="integration-device-id" class="admin-url form-control" value="@IntegrationDeviceId" @oninput="OnIntegrationDeviceIdInput" />
+                    <small class="form-text text-muted">Must match the device identifier configured in the Website Kiosk integration.</small>
+                </div>
+                <div class="admin-setting-row">
+                    <label for="integration-access-token" class="form-label mb-1">Access token (optional)</label>
+                    <input id="integration-access-token" class="admin-url form-control" value="@IntegrationAccessToken" @oninput="OnIntegrationAccessTokenInput" />
+                    <small class="form-text text-muted">Optional long-lived Home Assistant token. Leave blank if your endpoint works without it.</small>
+                </div>
+                <div class="admin-setting-row">
+                    <label for="integration-poll-seconds" class="form-label mb-1">Poll frequency (secs)</label>
+                    <InputNumber id="integration-poll-seconds" class="admin-order form-control poll-frequency-input" @bind-Value="IntegrationPollFrequencySeconds" min="1" />
+                    <small class="form-text text-muted">How often this kiosk checks Home Assistant for commands.</small>
+                </div>
+                <div class="admin-setting-row">
+                    <div class="form-check mt-1">
+                        <InputCheckbox id="debug-logging-enabled" class="form-check-input" @bind-Value="DebugLoggingEnabled" />
+                        <label for="debug-logging-enabled" class="form-check-label">Enable debug logging</label>
+                    </div>
+                    <small class="form-text text-muted">Shows live polling and command diagnostics while running the slideshow.</small>
+                </div>
+                <div class="admin-setting-row">
+                    <div class="form-check mt-1">
+                        <InputCheckbox id="show-arrow-overlay-buttons" class="form-check-input" @bind-Value="ShowArrowOverlayButtons" />
+                        <label for="show-arrow-overlay-buttons" class="form-check-label">Show left/right overlay arrows</label>
+                    </div>
+                    <small class="form-text text-muted">Displays previous and next arrow controls on top of the slideshow.</small>
+                </div>
+                <div class="admin-setting-row">
+                    <div class="form-check mt-1">
+                        <InputCheckbox id="show-pause-overlay-button" class="form-check-input" @bind-Value="ShowPauseOverlayButton" />
+                        <label for="show-pause-overlay-button" class="form-check-label">Show pause overlay button</label>
+                    </div>
+                    <small class="form-text text-muted">Displays the pause/resume button at the bottom-center of the slideshow.</small>
+                </div>
+                <div class="admin-setting-row">
+                    <div class="form-check mt-1">
+                        <InputCheckbox id="show-settings-overlay-button" class="form-check-input" @bind-Value="ShowSettingsOverlayButton" />
+                        <label for="show-settings-overlay-button" class="form-check-label">Show settings overlay button</label>
+                    </div>
+                    <small class="form-text text-muted">Displays the settings button in the bottom-left. If disabled, double-tap the bottom-left corner to open settings.</small>
+                </div>
+            </div>
 
-    <div class="admin-settings">
-        <div class="admin-setting-row">
-            <label for="integration-base-url">Home Assistant base URL</label>
-            <div class="admin-connect-row">
-                <input id="integration-base-url" class="admin-url" value="@IntegrationBaseUrl" @oninput="OnIntegrationBaseUrlInput" />
-                <button type="button" class="@ConnectButtonCssClass" @onclick="ConnectToHomeAssistantAsync" disabled="@IsConnectionTestInProgress">@ConnectButtonText</button>
+            @if (DebugLoggingEnabled && !string.IsNullOrWhiteSpace(ResolvedCommandUrlPreview))
+            {
+                <div class="admin-note mt-3">Command endpoint preview: <code>@ResolvedCommandUrlPreview</code></div>
+            }
+
+            <div class="admin-actions mt-3">
+                <button type="button" class="btn btn-primary action-btn" @onclick="SaveIntegrationSettingsAsync">Save settings</button>
+                <button type="button" class="btn btn-outline-primary action-btn" @onclick="StartSlideshowAsync" disabled="@IsRunning">Start slideshow</button>
+                <a class="btn btn-outline-secondary action-btn" href="https://sharptools.io" target="_top" rel="external">SharpTools Sign In</a>
             </div>
         </div>
-        <div class="admin-setting-row">
-            <label for="integration-device-id">Device identifier</label>
-            <input id="integration-device-id" class="admin-url" value="@IntegrationDeviceId" @oninput="OnIntegrationDeviceIdInput" />
-        </div>
-        <div class="admin-setting-row">
-            <label for="integration-access-token">Access token (optional)</label>
-            <input id="integration-access-token" class="admin-url" value="@IntegrationAccessToken" @oninput="OnIntegrationAccessTokenInput" />
-        </div>
-        <div class="admin-setting-row">
-            <label for="integration-poll-seconds">Poll frequency (secs)</label>
-            <InputNumber id="integration-poll-seconds" class="admin-order" @bind-Value="IntegrationPollFrequencySeconds" min="1" />
-        </div>
-        <div class="admin-setting-row">
-            <label>
-                <InputCheckbox @bind-Value="DebugLoggingEnabled" />
-                Enable debug logging
-            </label>
-        </div>
-    </div>
-
-    @if (!string.IsNullOrWhiteSpace(ResolvedCommandUrlPreview))
-    {
-        <p class="admin-note">Command endpoint preview: <code>@ResolvedCommandUrlPreview</code></p>
-    }
-
-    <div class="admin-actions">
-        <button type="button" @onclick="SaveIntegrationSettingsAsync">Save settings</button>
-        <button type="button" @onclick="StartSlideshowAsync" disabled="@IsRunning">Start Slideshow</button>
-    </div>
-}
-
-@code {
-    private const string SlideshowFrameId = "website-kiosk-frame";
-
-    private CancellationTokenSource? _slideshowCancellation;
-    private CancellationTokenSource? _integrationCancellation;
-    private bool _pendingInitialNavigation;
-    private bool _slideshowLoopStarted;
-    private bool _wasPausedBeforeScreenOff;
-    private List<WebsiteEntry> Websites { get; set; } = [];
-    private int RotateFrequencySeconds { get; set; } = WebsiteKioskConfiguration.DefaultRotateFrequencySeconds;
-    private int IntegrationPollFrequencySeconds { get; set; } = WebsiteKioskConfiguration.DefaultIntegrationPollFrequencySeconds;
-    private int CurrentIndex { get; set; }
-    private string? LastNavigatedUrl { get; set; }
-    private string? ScreenOffReturnUrl { get; set; }
-    private string? PendingCommandNavigationUrl { get; set; }
-    private string? StartUrl { get; set; }
-    private string? ScreenOffUrl { get; set; }
-    private string? IntegrationBaseUrl { get; set; }
-    private string? IntegrationDeviceId { get; set; }
-    private string? IntegrationCommandUrl { get; set; }
-    private string? IntegrationSettingsUrl { get; set; }
-    private string? IntegrationAccessToken { get; set; }
-    private string? LastProcessedCommandSignature { get; set; }
-    private string? LastSettingsSignature { get; set; }
-    private string? LastCommandReceived { get; set; }
-    private string LastPollStatus { get; set; } = "Waiting for first poll...";
-
-    private bool IsRunning { get; set; }
-    private bool IsPaused { get; set; }
-    private bool IsScreenOff { get; set; }
-    private bool DebugLoggingEnabled { get; set; }
-    private bool IsConnectionTestInProgress { get; set; }
-    private bool? IsConnectionTestSuccessful { get; set; }
-
-    private string StatusMessage { get; set; } = string.Empty;
-    private string? ResolvedCommandUrlPreview => TryBuildCommandUrlSafe(IntegrationBaseUrl, IntegrationDeviceId);
-    private string CurrentPolledCommandUrl => string.IsNullOrWhiteSpace(IntegrationCommandUrl)
-        ? "(not configured)"
-        : IntegrationCommandUrl;
-    private string DebugStatusText => string.IsNullOrWhiteSpace(LastCommandReceived)
-        ? $"{LastPollStatus} | Polling: {CurrentPolledCommandUrl}"
-        : $"Last command received: {LastCommandReceived} | {LastPollStatus} | Polling: {CurrentPolledCommandUrl}";
-    private string ConnectButtonText => IsConnectionTestInProgress
-        ? "Connecting..."
-        : IsConnectionTestSuccessful is true
-            ? "Connected ✓"
-            : IsConnectionTestSuccessful is false
-                ? "Not Connected ✗"
-                : "Test Connection";
-    private string ConnectButtonCssClass => IsConnectionTestSuccessful switch
-    {
-        true => "connect-status success",
-        false => "connect-status failure",
-        _ => "connect-status"
-    };
-
-    protected override async Task OnInitializedAsync()
-    {
-        var saved = await ConfigurationStore.LoadAsync();
-        RotateFrequencySeconds = saved.RotateFrequencySeconds;
-        IntegrationPollFrequencySeconds = saved.IntegrationPollFrequencySeconds;
-        StartUrl = saved.StartUrl;
-        ScreenOffUrl = saved.ScreenOffUrl;
-        IntegrationCommandUrl = saved.IntegrationCommandUrl;
-
-        IntegrationBaseUrl = saved.IntegrationBaseUrl;
-        IntegrationDeviceId = saved.IntegrationDeviceId;
-
-        if (string.IsNullOrWhiteSpace(IntegrationBaseUrl)
-            && string.IsNullOrWhiteSpace(IntegrationDeviceId)
-            && TryParseCommandUrl(saved.IntegrationCommandUrl, out var parsedBaseUrl, out var parsedDeviceId))
-        {
-            IntegrationBaseUrl = parsedBaseUrl;
-            IntegrationDeviceId = parsedDeviceId;
-        }
-        else if (string.IsNullOrWhiteSpace(IntegrationBaseUrl))
-        {
-            IntegrationBaseUrl = saved.IntegrationCommandUrl;
-        }
-
-        IntegrationSettingsUrl = BuildSettingsUrl(saved.IntegrationCommandUrl);
-        IntegrationAccessToken = saved.IntegrationAccessToken;
-        DebugLoggingEnabled = saved.DebugLoggingEnabled;
-
-        Websites = saved.Websites
-            .Where(x => IsValidHttpUrl(x.Url))
-            .OrderBy(x => x.Order)
-            .Select(x => new WebsiteEntry
-            {
-                Url = x.Url.Trim(),
-                Order = x.Order
-            })
-            .ToList();
-
-        StatusMessage = Websites.Count == 0
-            ? "No URLs available to rotate."
-            : "Click Start Slideshow to begin rotating URLs that you configured in Home Assistant.";
-
-        await LoadIntegrationSettingsAsync();
-        StartIntegrationPolling();
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (IsRunning && IsValidHttpUrl(PendingCommandNavigationUrl))
-        {
-            var targetUrl = PendingCommandNavigationUrl;
-            PendingCommandNavigationUrl = null;
-
-            try
-            {
-                await JsRuntime.InvokeVoidAsync("websiteKiosk.navigateFrame", SlideshowFrameId, LastNavigatedUrl, targetUrl);
-                LastNavigatedUrl = targetUrl;
-            }
-            catch (JSException ex)
-            {
-                IsRunning = false;
-                IsPaused = false;
-                StatusMessage = ex.Message;
-                await InvokeAsync(StateHasChanged);
-            }
-
-            return;
-        }
-
-        if (!_pendingInitialNavigation || !IsRunning || Websites.Count == 0)
-        {
-            return;
-        }
-
-        _pendingInitialNavigation = false;
-
-        try
-        {
-            await NavigateToCurrentUrlAsync();
-
-            if (_slideshowCancellation is not null && !_slideshowLoopStarted)
-            {
-                _slideshowLoopStarted = true;
-                _ = RunSlideshowAsync(_slideshowCancellation.Token);
-            }
-        }
-        catch (JSException ex)
-        {
-            IsRunning = false;
-            IsPaused = false;
-            StatusMessage = ex.Message;
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private async Task StartSlideshowAsync()
-    {
-        if (IsRunning)
-        {
-            return;
-        }
-
-        var resolvedCommandUrl = ResolveCommandUrlInput(IntegrationBaseUrl, IntegrationDeviceId)
-            ?? IntegrationCommandUrl;
-
-        if (string.IsNullOrWhiteSpace(resolvedCommandUrl))
-        {
-            StatusMessage = "Enter a Home Assistant base URL and device identifier before starting the slideshow.";
-            return;
-        }
-
-        if (!string.Equals(IntegrationCommandUrl, resolvedCommandUrl, StringComparison.OrdinalIgnoreCase))
-        {
-            IntegrationCommandUrl = resolvedCommandUrl;
-            IntegrationSettingsUrl = BuildSettingsUrl(resolvedCommandUrl);
-            LastProcessedCommandSignature = null;
-            LastSettingsSignature = null;
-
-            await LoadIntegrationSettingsAsync();
-            StartIntegrationPolling();
-        }
-
-        if (Websites.Count == 0)
-        {
-            StatusMessage = "No rotation URLs are available yet. Configure them in the Home Assistant integration settings.";
-            return;
-        }
-
-        CurrentIndex = 0;
-        LastNavigatedUrl = null;
-        IsRunning = true;
-        IsPaused = false;
-        IsScreenOff = false;
-        _pendingInitialNavigation = true;
-        _slideshowLoopStarted = false;
-        StatusMessage = "Slideshow running.";
-        _slideshowCancellation = new CancellationTokenSource();
-
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private async Task RunSlideshowAsync(CancellationToken token)
-    {
-        try
-        {
-            while (!token.IsCancellationRequested)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(RotateFrequencySeconds), token);
-
-                if (IsPaused)
-                {
-                    continue;
-                }
-
-                CurrentIndex = (CurrentIndex + 1) % Websites.Count;
-                await NavigateToCurrentUrlAsync();
-
-                await InvokeAsync(() =>
-                {
-                    StateHasChanged();
-                });
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (JSException ex)
-        {
-            await InvokeAsync(() =>
-            {
-                IsRunning = false;
-                StatusMessage = ex.Message;
-                StateHasChanged();
-            });
-        }
-    }
-
-    private Task StopSlideshowAsync()
-    {
-        _slideshowCancellation?.Cancel();
-        _slideshowCancellation?.Dispose();
-        _slideshowCancellation = null;
-        _pendingInitialNavigation = false;
-        _slideshowLoopStarted = false;
-        IsRunning = false;
-        IsPaused = false;
-        IsScreenOff = false;
-        LastNavigatedUrl = null;
-        ScreenOffReturnUrl = null;
-        StatusMessage = "Slideshow stopped.";
-
-        return Task.CompletedTask;
-    }
-
-    private async Task GoPreviousAsync()
-    {
-        if (!IsRunning || Websites.Count == 0)
-        {
-            return;
-        }
-
-        CurrentIndex = (CurrentIndex - 1 + Websites.Count) % Websites.Count;
-        await NavigateToCurrentUrlAsync();
-    }
-
-    private async Task GoNextAsync()
-    {
-        if (!IsRunning || Websites.Count == 0)
-        {
-            return;
-        }
-
-        CurrentIndex = (CurrentIndex + 1) % Websites.Count;
-        await NavigateToCurrentUrlAsync();
-    }
-
-    private void TogglePause()
-    {
-        if (!IsRunning)
-        {
-            return;
-        }
-
-        IsPaused = !IsPaused;
-    }
-
-    private void StartIntegrationPolling()
-    {
-        _integrationCancellation?.Cancel();
-        _integrationCancellation?.Dispose();
-        _integrationCancellation = null;
-
-        if (string.IsNullOrWhiteSpace(IntegrationCommandUrl))
-        {
-            return;
-        }
-
-        _integrationCancellation = new CancellationTokenSource();
-        _ = RunIntegrationPollingAsync(_integrationCancellation.Token);
-    }
-
-    private async Task RunIntegrationPollingAsync(CancellationToken token)
-    {
-        while (!token.IsCancellationRequested)
-        {
-            try
-            {
-                await LoadIntegrationSettingsAsync(token);
-
-                var command = await FetchIntegrationCommandAsync(token);
-                if (command is not null)
-                {
-                    LastCommandReceived = string.IsNullOrWhiteSpace(command.Command)
-                        ? DateTimeOffset.Now.ToString("HH:mm:ss")
-                        : $"{command.Command} ({DateTimeOffset.Now:HH:mm:ss})";
-                    LastPollStatus = $"Command received ({DateTimeOffset.Now:HH:mm:ss})";
-
-                    await InvokeAsync(async () =>
-                    {
-                        await HandleIntegrationCommandAsync(command);
-                        StateHasChanged();
-                    });
-                }
-                else
-                {
-                    await InvokeAsync(StateHasChanged);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-            catch
-            {
-                LastPollStatus = $"Command poll failed ({DateTimeOffset.Now:HH:mm:ss})";
-                await InvokeAsync(StateHasChanged);
-            }
-
-            await Task.Delay(TimeSpan.FromSeconds(IntegrationPollFrequencySeconds), token);
-        }
-    }
-
-    private async Task<KioskIntegrationCommand?> FetchIntegrationCommandAsync(CancellationToken token)
-    {
-        if (string.IsNullOrWhiteSpace(IntegrationCommandUrl))
-        {
-            return null;
-        }
-
-        var commandUrl = AddAccessTokenQuery(IntegrationCommandUrl, IntegrationAccessToken);
-        using var request = new HttpRequestMessage(HttpMethod.Get, BuildNoCacheUrl(commandUrl));
-
-        HttpResponseMessage response;
-        try
-        {
-            response = await HttpClient.SendAsync(request, token);
-        }
-        catch (Exception ex)
-        {
-            LastPollStatus = $"Command poll request failed: {ex.GetType().Name} ({DateTimeOffset.Now:HH:mm:ss})";
-            return null;
-        }
-
-        using (response)
-        {
-            if (!response.IsSuccessStatusCode)
-            {
-                LastPollStatus = $"Command poll HTTP {(int)response.StatusCode} ({DateTimeOffset.Now:HH:mm:ss})";
-                return null;
-            }
-
-            var json = await response.Content.ReadAsStringAsync(token);
-            if (string.IsNullOrWhiteSpace(json))
-            {
-                LastPollStatus = $"Command poll empty body ({DateTimeOffset.Now:HH:mm:ss})";
-                return null;
-            }
-
-            var command = ParseCommand(json);
-            if (command is null)
-            {
-                LastPollStatus = $"Command poll no command ({DateTimeOffset.Now:HH:mm:ss})";
-                return null;
-            }
-
-            var signature = string.IsNullOrWhiteSpace(command.Id)
-                ? json.Trim()
-                : command.Id.Trim();
-
-            if (string.Equals(signature, LastProcessedCommandSignature, StringComparison.Ordinal))
-            {
-                LastPollStatus = $"Command poll duplicate ignored ({DateTimeOffset.Now:HH:mm:ss})";
-                return null;
-            }
-
-            LastProcessedCommandSignature = signature;
-            return command;
-        }
-    }
-
-    private async Task LoadIntegrationSettingsAsync(CancellationToken token = default)
-    {
-        if (string.IsNullOrWhiteSpace(IntegrationSettingsUrl))
-        {
-            return;
-        }
-
-        var settingsUrl = AddAccessTokenQuery(IntegrationSettingsUrl, IntegrationAccessToken);
-        using var request = new HttpRequestMessage(HttpMethod.Get, BuildNoCacheUrl(settingsUrl));
-
-        HttpResponseMessage response;
-        try
-        {
-            response = await HttpClient.SendAsync(request, token);
-        }
-        catch
-        {
-            return;
-        }
-
-        using (response)
-        {
-        if (!response.IsSuccessStatusCode)
-        {
-            return;
-        }
-
-        var json = await response.Content.ReadAsStringAsync(token);
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return;
-        }
-
-        var signature = json.Trim();
-        if (string.Equals(signature, LastSettingsSignature, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.ValueKind != JsonValueKind.Object)
-        {
-            return;
-        }
-
-        ApplyIntegrationSettings(doc.RootElement);
-        LastSettingsSignature = signature;
-        }
-    }
-
-    private void ApplyIntegrationSettings(JsonElement root)
-    {
-        if (TryGetProperty(root, "rotate_frequency_seconds", out var rotate) && rotate.ValueKind == JsonValueKind.Number && rotate.TryGetInt32(out var rotateSeconds) && rotateSeconds > 0)
-        {
-            RotateFrequencySeconds = rotateSeconds;
-        }
-
-        var loadedWebsites = new List<WebsiteEntry>();
-        if (TryGetProperty(root, "websites", out var websitesElement) && websitesElement.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in websitesElement.EnumerateArray())
-            {
-                if (item.ValueKind != JsonValueKind.Object)
-                {
-                    continue;
-                }
-
-                var url = GetString(item, "url");
-                if (!IsValidHttpUrl(url))
-                {
-                    continue;
-                }
-
-                var order = 1;
-                if (TryGetProperty(item, "order", out var orderElement) && orderElement.ValueKind == JsonValueKind.Number && orderElement.TryGetInt32(out var parsedOrder) && parsedOrder > 0)
-                {
-                    order = parsedOrder;
-                }
-
-                loadedWebsites.Add(new WebsiteEntry
-                {
-                    Url = url!.Trim(),
-                    Order = order,
-                });
-            }
-
-            Websites = loadedWebsites
-                .OrderBy(x => x.Order)
-                .ToList();
-
-            if (CurrentIndex >= Websites.Count)
-            {
-                CurrentIndex = 0;
-            }
-
-            StatusMessage = Websites.Count == 0
-                ? "No URLs available to rotate."
-                : "Click Start Slideshow to begin rotating URLs.";
-        }
-
-        var startUrl = GetString(root, "start_url");
-        StartUrl = IsValidHttpUrl(startUrl)
-            ? startUrl
-            : null;
-
-        var screenOffUrl = GetString(root, "screen_off_url");
-        ScreenOffUrl = IsValidHttpUrl(screenOffUrl)
-            ? screenOffUrl
-            : null;
-    }
-
-    private static string? BuildSettingsUrl(string? commandUrl)
-    {
-        if (!Uri.TryCreate(commandUrl, UriKind.Absolute, out var uri))
-        {
-            return null;
-        }
-
-        var path = uri.AbsolutePath;
-        var marker = "/command/";
-        var index = path.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-        if (index < 0)
-        {
-            return null;
-        }
-
-        var settingsPath = string.Concat(path.AsSpan(0, index), "/settings/", path.AsSpan(index + marker.Length));
-        var builder = new UriBuilder(uri)
-        {
-            Path = settingsPath,
-        };
-
-        return builder.Uri.ToString();
-    }
-
-    private static string BuildNoCacheUrl(string url)
-    {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
-        {
-            return url;
-        }
-
-        var builder = new UriBuilder(uri);
-        var existingQuery = builder.Query.TrimStart('?');
-        var cacheBuster = $"_ts={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
-        builder.Query = string.IsNullOrWhiteSpace(existingQuery)
-            ? cacheBuster
-            : $"{existingQuery}&{cacheBuster}";
-
-        return builder.Uri.ToString();
-    }
-
-    private static KioskIntegrationCommand? ParseCommand(string json)
-    {
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in doc.RootElement.EnumerateArray())
-            {
-                if (item.ValueKind == JsonValueKind.Object)
-                {
-                    return MapCommand(item);
-                }
-            }
-
-            return null;
-        }
-
-        if (doc.RootElement.ValueKind == JsonValueKind.Object)
-        {
-            return MapCommand(doc.RootElement);
-        }
-
-        return null;
-    }
-
-    private static KioskIntegrationCommand MapCommand(JsonElement root)
-    {
-        var payload = TryGetProperty(root, "data", out var dataElement) && dataElement.ValueKind == JsonValueKind.Object
-            ? dataElement
-            : root;
-
-        return new KioskIntegrationCommand
-        {
-            Id = GetString(root, "id", "commandId", "event_id") ?? GetString(payload, "id", "commandId", "event_id"),
-            Command = GetString(root, "command", "service", "action", "name") ?? GetString(payload, "command", "service", "action", "name"),
-            Url = GetString(payload, "url", "uri", "targetUrl"),
-            Value = GetString(payload, "value", "state"),
-            Enabled = GetBool(payload, "enabled", "isOn", "on"),
-            AppIntent = GetString(payload, "appIntent", "intent", "intentUrl"),
-            PackageName = GetString(payload, "packageName", "package"),
-            DeepLinkUrl = GetString(payload, "deepLinkUrl", "deepLink", "appUrl")
-        };
-    }
-
-    private async Task HandleIntegrationCommandAsync(KioskIntegrationCommand command)
-    {
-        var normalized = NormalizeCommand(command.Command);
-
-        switch (normalized)
-        {
-            case "load_url":
-                await NavigateToExplicitUrlAsync(command.Url);
-                break;
-            case "load_start_url":
-                await NavigateToStartUrlAsync();
-                break;
-            case "screen_switch":
-                ApplyScreenSwitch(command);
-                break;
-            case "start_application":
-                await JsRuntime.InvokeVoidAsync("websiteKiosk.startApplication", command.AppIntent, command.PackageName, command.DeepLinkUrl);
-                break;
-        }
-    }
-
-    private static string NormalizeCommand(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-
-        var normalized = value.Trim().ToLowerInvariant()
-            .Replace('.', '_')
-            .Replace('-', '_')
-            .Replace(' ', '_');
-
-        var mapped = normalized switch
-        {
-            "kiosk_load_url" or "load_url" or "load_ur1" => "load_url",
-            "tablet_load_start_url" or "button_tablet_load_start_url" or "load_start_url" => "load_start_url",
-            "tablet_screen" or "switch_tablet_screen" or "screen" => "screen_switch",
-            "kiosk_start_application" or "start_application" => "start_application",
-            _ => normalized
-        };
-
-        if (mapped == normalized)
-        {
-            if (normalized.Contains("load_start_url", StringComparison.Ordinal))
-            {
-                return "load_start_url";
-            }
-
-            if (normalized.Contains("load_url", StringComparison.Ordinal))
-            {
-                return "load_url";
-            }
-
-            if (normalized.Contains("start_application", StringComparison.Ordinal))
-            {
-                return "start_application";
-            }
-
-            if (normalized.Contains("tablet_screen", StringComparison.Ordinal)
-                || normalized.Contains("screen_switch", StringComparison.Ordinal))
-            {
-                return "screen_switch";
-            }
-        }
-
-        return mapped;
-    }
-
-    private void ApplyScreenSwitch(KioskIntegrationCommand command)
-    {
-        var isOn = command.Enabled ?? ParseBoolean(command.Value) ?? true;
-
-        if (!isOn)
-        {
-            ScreenOffReturnUrl = LastNavigatedUrl;
-            _wasPausedBeforeScreenOff = IsPaused;
-            IsPaused = true;
-
-            if (IsValidHttpUrl(ScreenOffUrl))
-            {
-                _ = NavigateToExplicitUrlAsync(ScreenOffUrl);
-                IsScreenOff = false;
-            }
-            else
-            {
-                IsRunning = true;
-                IsScreenOff = true;
-            }
-
-            return;
-        }
-
-        IsScreenOff = false;
-        IsPaused = _wasPausedBeforeScreenOff;
-
-        if (IsValidHttpUrl(ScreenOffReturnUrl))
-        {
-            _ = NavigateToExplicitUrlAsync(ScreenOffReturnUrl);
-        }
-
-        ScreenOffReturnUrl = null;
-    }
-
-    private async Task NavigateToStartUrlAsync()
-    {
-        await LoadIntegrationSettingsAsync();
-
-        var target = IsValidHttpUrl(StartUrl)
-            ? StartUrl
-            : Websites.FirstOrDefault()?.Url;
-
-        if (!IsValidHttpUrl(target))
-        {
-            StatusMessage = "Load Start URL requested, but no valid Start URL or rotation URL is available.";
-            return;
-        }
-
-        await NavigateToExplicitUrlAsync(target);
-    }
-
-    private async Task NavigateToExplicitUrlAsync(string? targetUrl)
-    {
-        if (!IsValidHttpUrl(targetUrl))
-        {
-            return;
-        }
-
-        IsScreenOff = false;
-
-        var matchingIndex = Websites.FindIndex(x => string.Equals(x.Url, targetUrl, StringComparison.OrdinalIgnoreCase));
-        if (matchingIndex >= 0)
-        {
-            CurrentIndex = matchingIndex;
-        }
-
-        if (!IsRunning)
-        {
-            IsRunning = true;
-            IsPaused = false;
-            PendingCommandNavigationUrl = targetUrl;
-            await InvokeAsync(StateHasChanged);
-            return;
-        }
-
-        await JsRuntime.InvokeVoidAsync("websiteKiosk.navigateFrame", SlideshowFrameId, LastNavigatedUrl, targetUrl);
-        LastNavigatedUrl = targetUrl;
-    }
-
-    private static bool? ParseBoolean(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        return value.Trim().ToLowerInvariant() switch
-        {
-            "true" or "on" or "1" => true,
-            "false" or "off" or "0" => false,
-            _ => null
-        };
-    }
-
-    private static string? GetString(JsonElement element, params string[] keys)
-    {
-        foreach (var key in keys)
-        {
-            if (!TryGetProperty(element, key, out var property))
-            {
-                continue;
-            }
-
-            if (property.ValueKind == JsonValueKind.String)
-            {
-                return property.GetString();
-            }
-
-            if (property.ValueKind == JsonValueKind.Number || property.ValueKind == JsonValueKind.True || property.ValueKind == JsonValueKind.False)
-            {
-                return property.ToString();
-            }
-        }
-
-        return null;
-    }
-
-    private static bool? GetBool(JsonElement element, params string[] keys)
-    {
-        foreach (var key in keys)
-        {
-            if (!TryGetProperty(element, key, out var property))
-            {
-                continue;
-            }
-
-            if (property.ValueKind == JsonValueKind.True)
-            {
-                return true;
-            }
-
-            if (property.ValueKind == JsonValueKind.False)
-            {
-                return false;
-            }
-
-            if (property.ValueKind == JsonValueKind.String)
-            {
-                return ParseBoolean(property.GetString());
-            }
-        }
-
-        return null;
-    }
-
-    private static bool TryGetProperty(JsonElement element, string propertyName, out JsonElement value)
-    {
-        foreach (var property in element.EnumerateObject())
-        {
-            if (property.NameEquals(propertyName) || property.Name.Equals(propertyName, StringComparison.OrdinalIgnoreCase))
-            {
-                value = property.Value;
-                return true;
-            }
-        }
-
-        value = default;
-        return false;
-    }
-
-    private async Task ConnectToHomeAssistantAsync()
-    {
-        var resolvedCommandUrl = ResolveCommandUrlInput(IntegrationBaseUrl, IntegrationDeviceId);
-        if (string.IsNullOrWhiteSpace(resolvedCommandUrl))
-        {
-            IsConnectionTestSuccessful = false;
-            StatusMessage = "Enter a valid Home Assistant base URL and device identifier before connecting.";
-            return;
-        }
-
-        IntegrationCommandUrl = resolvedCommandUrl;
-        IntegrationSettingsUrl = BuildSettingsUrl(resolvedCommandUrl);
-        if (string.IsNullOrWhiteSpace(IntegrationSettingsUrl))
-        {
-            IsConnectionTestSuccessful = false;
-            StatusMessage = "Unable to build Home Assistant settings endpoint from the current values.";
-            return;
-        }
-
-        IsConnectionTestInProgress = true;
-        StatusMessage = "Connecting to Home Assistant...";
-
-        try
-        {
-            var integrationProbeUrls = new[]
-            {
-                IntegrationSettingsUrl,
-                resolvedCommandUrl,
-            }
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-            foreach (var checkUrl in integrationProbeUrls)
-            {
-                var probeUrl = AddAccessTokenQuery(checkUrl, IntegrationAccessToken);
-                try
-                {
-                    using var request = new HttpRequestMessage(HttpMethod.Get, BuildNoCacheUrl(probeUrl));
-                    using var response = await HttpClient.SendAsync(request);
-
-                    IsConnectionTestSuccessful = true;
-                    StatusMessage = response.IsSuccessStatusCode
-                        ? $"Connected to Home Assistant integration endpoint: {checkUrl}"
-                        : $"Integration endpoint reached ({(int)response.StatusCode} {response.ReasonPhrase}): {checkUrl}";
-                    return;
-                }
-                catch
-                {
-                }
-            }
-
-            var baseUrl = NormalizeOptionalHttpUrl(IntegrationBaseUrl);
-            if (!string.IsNullOrWhiteSpace(baseUrl))
-            {
-                try
-                {
-                    using var request = new HttpRequestMessage(HttpMethod.Get, BuildNoCacheUrl(baseUrl));
-                    using var response = await HttpClient.SendAsync(request);
-
-                    IsConnectionTestSuccessful = false;
-                    StatusMessage = $"Base URL is reachable but integration endpoints are not. Check device id/path/CORS. Base response: {(int)response.StatusCode} {response.ReasonPhrase}.";
-                    return;
-                }
-                catch
-                {
-                }
-            }
-
-            IsConnectionTestSuccessful = false;
-            StatusMessage = "Connection failed. Check HA URL, CORS origin, and HTTPS certificate trust on this device.";
-        }
-        finally
-        {
-            IsConnectionTestInProgress = false;
-        }
-    }
-
-    private void ResetConnectionTestState()
-    {
-        IsConnectionTestSuccessful = null;
-    }
-
-    private void OnIntegrationBaseUrlInput(ChangeEventArgs args)
-    {
-        IntegrationBaseUrl = args.Value?.ToString();
-        ResetConnectionTestState();
-    }
-
-    private void OnIntegrationDeviceIdInput(ChangeEventArgs args)
-    {
-        IntegrationDeviceId = args.Value?.ToString();
-        ResetConnectionTestState();
-    }
-
-    private void OnIntegrationAccessTokenInput(ChangeEventArgs args)
-    {
-        IntegrationAccessToken = args.Value?.ToString();
-        ResetConnectionTestState();
-    }
-
-    private async Task SaveIntegrationSettingsAsync()
-    {
-        try
-        {
-            var configuration = await ConfigurationStore.LoadAsync();
-
-            configuration.IntegrationBaseUrl = string.IsNullOrWhiteSpace(IntegrationBaseUrl)
-                ? null
-                : IntegrationBaseUrl.Trim();
-            configuration.IntegrationDeviceId = string.IsNullOrWhiteSpace(IntegrationDeviceId)
-                ? null
-                : IntegrationDeviceId.Trim();
-
-            var resolvedCommandUrl = ResolveCommandUrlInput(IntegrationBaseUrl, IntegrationDeviceId);
-            if (string.IsNullOrWhiteSpace(resolvedCommandUrl))
-            {
-                await ConfigurationStore.SaveAsync(configuration);
-                StatusMessage = "Enter a valid Home Assistant base URL and device identifier.";
-                return;
-            }
-
-            if (TryParseCommandUrl(resolvedCommandUrl, out var parsedBaseUrl, out var parsedDeviceId))
-            {
-                IntegrationBaseUrl = parsedBaseUrl;
-                IntegrationDeviceId = parsedDeviceId;
-            }
-
-            configuration.IntegrationCommandUrl = resolvedCommandUrl;
-            configuration.IntegrationAccessToken = string.IsNullOrWhiteSpace(IntegrationAccessToken)
-                ? null
-                : IntegrationAccessToken.Trim();
-            configuration.IntegrationPollFrequencySeconds = IntegrationPollFrequencySeconds <= 0
-                ? WebsiteKioskConfiguration.DefaultIntegrationPollFrequencySeconds
-                : IntegrationPollFrequencySeconds;
-            configuration.DebugLoggingEnabled = DebugLoggingEnabled;
-
-            await ConfigurationStore.SaveAsync(configuration);
-
-            var reloadedConfiguration = await ConfigurationStore.LoadAsync();
-            var savedCommandUrl = reloadedConfiguration.IntegrationCommandUrl;
-            if (!string.Equals(savedCommandUrl, configuration.IntegrationCommandUrl, StringComparison.OrdinalIgnoreCase))
-            {
-                StatusMessage = "Save failed: browser storage did not persist the updated integration settings.";
-                return;
-            }
-
-            IntegrationCommandUrl = configuration.IntegrationCommandUrl;
-            IntegrationAccessToken = configuration.IntegrationAccessToken;
-            IntegrationPollFrequencySeconds = configuration.IntegrationPollFrequencySeconds;
-            DebugLoggingEnabled = configuration.DebugLoggingEnabled;
-            IntegrationSettingsUrl = BuildSettingsUrl(configuration.IntegrationCommandUrl);
-            LastProcessedCommandSignature = null;
-            LastSettingsSignature = null;
-
-            try
-            {
-                await LoadIntegrationSettingsAsync();
-            }
-            catch
-            {
-                StatusMessage = "Settings saved, but Home Assistant could not be reached. Check URL/CORS and try again.";
-            }
-
-            StartIntegrationPolling();
-            if (!(StatusMessage?.StartsWith("Settings saved, but", StringComparison.Ordinal) ?? false))
-            {
-                StatusMessage = $"Integration settings saved: {resolvedCommandUrl}";
-            }
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Save failed: {ex.Message}";
-        }
-    }
-
-    private async Task NavigateToCurrentUrlAsync()
-    {
-        if (Websites.Count == 0)
-        {
-            return;
-        }
-
-        var currentUrl = Websites[CurrentIndex].Url;
-        await JsRuntime.InvokeVoidAsync("websiteKiosk.navigateFrame", SlideshowFrameId, LastNavigatedUrl, currentUrl);
-        LastNavigatedUrl = currentUrl;
-    }
-
-    private static bool IsValidHttpUrl(string? value)
-    {
-        return Uri.TryCreate(value, UriKind.Absolute, out var uri)
-            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
-    }
-
-    private static string? NormalizeOptionalHttpUrl(string? value)
-    {
-        var candidate = value?.Trim();
-        return IsValidHttpUrl(candidate) ? candidate : null;
-    }
-
-    private static string? ResolveCommandUrlInput(string? baseUrlOrEndpoint, string? deviceId)
-    {
-        var normalizedInput = NormalizeOptionalHttpUrl(baseUrlOrEndpoint);
-        if (string.IsNullOrWhiteSpace(normalizedInput))
-        {
-            return null;
-        }
-
-        if (TryParseCommandUrl(normalizedInput, out var parsedBaseUrl, out var parsedDeviceId))
-        {
-            var effectiveDeviceId = string.IsNullOrWhiteSpace(deviceId)
-                ? parsedDeviceId
-                : deviceId.Trim();
-
-            return TryBuildCommandUrlSafe(parsedBaseUrl, effectiveDeviceId);
-        }
-
-        return TryBuildCommandUrlSafe(normalizedInput, deviceId);
-    }
-
-    private static string? TryBuildCommandUrlSafe(string? baseUrl, string? deviceId)
-    {
-        try
-        {
-            return BuildCommandUrl(baseUrl, deviceId);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static string? BuildCommandUrl(string? baseUrl, string? deviceId)
-    {
-        var normalizedBaseUrl = NormalizeOptionalHttpUrl(baseUrl);
-        var normalizedDeviceId = deviceId?.Trim();
-        if (string.IsNullOrWhiteSpace(normalizedBaseUrl) || string.IsNullOrWhiteSpace(normalizedDeviceId))
-        {
-            return null;
-        }
-
-        if (!Uri.TryCreate(normalizedBaseUrl, UriKind.Absolute, out var uri))
-        {
-            return null;
-        }
-
-        var builder = new UriBuilder(uri);
-        builder.Query = string.Empty;
-        builder.Path = CombinePaths(builder.Path, $"api/website_kiosk/command/{Uri.EscapeDataString(normalizedDeviceId)}");
-        return builder.Uri.ToString();
-    }
-
-    private static bool TryParseCommandUrl(string? commandUrl, out string? baseUrl, out string? deviceId)
-    {
-        baseUrl = null;
-        deviceId = null;
-
-        if (!Uri.TryCreate(commandUrl, UriKind.Absolute, out var uri))
-        {
-            return false;
-        }
-
-        var path = uri.AbsolutePath;
-        var marker = "/api/website_kiosk/command/";
-        var markerIndex = path.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-
-        if (markerIndex < 0)
-        {
-            return false;
-        }
-
-        var encodedDeviceId = path[(markerIndex + marker.Length)..].Trim('/');
-        if (string.IsNullOrWhiteSpace(encodedDeviceId))
-        {
-            return false;
-        }
-
-        var prefixPath = path[..markerIndex].TrimEnd('/');
-        var builder = new UriBuilder(uri)
-        {
-            Query = string.Empty,
-            Path = string.IsNullOrWhiteSpace(prefixPath) ? "/" : prefixPath,
-        };
-
-        baseUrl = builder.Uri.ToString().TrimEnd('/');
-        deviceId = Uri.UnescapeDataString(encodedDeviceId);
-        return true;
-    }
-
-    private static string CombinePaths(string basePath, string relativePath)
-    {
-        var left = string.IsNullOrWhiteSpace(basePath) ? string.Empty : basePath.TrimEnd('/');
-        var right = relativePath.TrimStart('/');
-
-        if (string.IsNullOrEmpty(left))
-        {
-            return $"/{right}";
-        }
-
-        return $"{left}/{right}";
-    }
-
-    private static string AddAccessTokenQuery(string url, string? accessToken)
-    {
-        if (string.IsNullOrWhiteSpace(accessToken) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
-        {
-            return url;
-        }
-
-        var builder = new UriBuilder(uri);
-        var query = builder.Query.TrimStart('?');
-        var tokenPart = $"access_token={Uri.EscapeDataString(accessToken.Trim())}";
-        builder.Query = string.IsNullOrWhiteSpace(query)
-            ? tokenPart
-            : $"{query}&{tokenPart}";
-
-        return builder.Uri.ToString();
-    }
-
-    public void Dispose()
-    {
-        _slideshowCancellation?.Cancel();
-        _slideshowCancellation?.Dispose();
-        _integrationCancellation?.Cancel();
-        _integrationCancellation?.Dispose();
-    }
+    </section>
 }

@@ -106,45 +106,23 @@ code {
     text-align: start;
 }
 
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+}
+
 .app-shell {
     min-height: 100vh;
-    background-color: #f5f7fb;
-}
-
-.top-nav {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 1rem;
-    padding: 0.75rem 1rem;
-    background-color: #1f3a66;
-}
-
-.app-branding {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.55rem;
-    margin-right: 0.5rem;
-    color: #ffffff;
-}
-
-.app-branding-name {
-    font-weight: 700;
-    letter-spacing: 0.01em;
-}
-
-.top-nav a {
-    color: #ffffff;
-    text-decoration: none;
-    font-weight: 600;
-}
-
-.top-nav a:hover {
-    text-decoration: underline;
+    background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
 }
 
 .content-shell {
-    padding: 1rem;
+    padding-top: 1.25rem;
+    padding-bottom: 1.25rem;
+}
+
+.kiosk-panel {
+    max-width: 980px;
+    margin: 0 auto;
 }
 
 .admin-page {
@@ -213,6 +191,10 @@ code {
     width: 100%;
 }
 
+.admin-setting-row .poll-frequency-input {
+    width: 7rem;
+}
+
 .admin-connect-row {
     display: flex;
     align-items: center;
@@ -224,22 +206,10 @@ code {
 }
 
 button,
-a.secondary {
+.action-btn {
     padding: 0.5rem 0.9rem;
-    border: 1px solid #1f3a66;
-    background-color: #1f3a66;
-    color: #fff;
-    border-radius: 4px;
-    cursor: pointer;
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-}
-
-button.secondary,
-a.secondary {
-    background-color: #ffffff;
-    color: #1f3a66;
+    width: 180px;
+    justify-content: center;
 }
 
 button.active-control,
@@ -250,7 +220,7 @@ button.secondary.active-control {
 }
 
 button.connect-status {
-    width: 140px;
+    width: 160px;
     justify-content: center;
     text-align: center;
     gap: 0.25rem;
@@ -357,6 +327,19 @@ button.connect-status.failure {
     bottom: 16px;
     font-size: 26px;
     -webkit-text-stroke: 0;
+}
+
+.slideshow-settings-hotspot {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 120px;
+    height: 120px;
+    z-index: 2090;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    opacity: 0;
 }
 
 .slideshow-screen-off {

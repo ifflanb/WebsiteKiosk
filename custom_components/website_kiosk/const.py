@@ -8,7 +8,6 @@ DEFAULT_DEVICE_NAME = "Kiosk Device"
 SERVICE_LOAD_URL = "load_url"
 SERVICE_START_APPLICATION = "start_application"
 SERVICE_LOAD_START_URL = "load_start_url"
-SERVICE_SET_SETTINGS = "set_settings"
 
 ATTR_DEVICE_ID = "device_id"
 ATTR_URL = "url"

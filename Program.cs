@@ -9,5 +9,9 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 builder.Services.AddScoped<WebsiteConfigurationStore>();
+builder.Services.AddScoped<KioskEndpointService>();
+builder.Services.AddScoped<KioskPayloadService>();
+builder.Services.AddScoped<KioskSlideshowService>();
+builder.Services.AddScoped<KioskNavigationService>();
 
 await builder.Build().RunAsync();

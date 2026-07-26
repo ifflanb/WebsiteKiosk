@@ -26,4 +26,10 @@ public sealed class WebsiteKioskConfiguration
     public int IntegrationPollFrequencySeconds { get; set; } = DefaultIntegrationPollFrequencySeconds;
 
     public bool DebugLoggingEnabled { get; set; }
+
+    public bool ShowArrowOverlayButtons { get; set; } = true;
+
+    public bool ShowPauseOverlayButton { get; set; } = true;
+
+    public bool ShowSettingsOverlayButton { get; set; } = true;
 }

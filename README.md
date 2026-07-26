@@ -100,19 +100,11 @@ Restart Home Assistant after changing CORS settings.
 
 ## Quick test
 
-1. In Home Assistant, call service `website_kiosk.set_settings` with data like:
-
-```yaml
-device_id: ipad_study
-rotate_frequency_seconds: 20
-start_url: https://sharptools.io/dashboard/view/abc
-screen_off_url: https://example.com/screen-off
-websites:
-  - url: https://sharptools.io/dashboard/view/abc
-	order: 1
-  - url: https://example.com
-	order: 2
-```
+1. In Home Assistant, open the Website Kiosk integration and configure:
+   - Rotation website URLs
+   - Rotation interval
+   - Start URL
+   - Screen-Off URL
 
 2. Start slideshow on the kiosk app.
 3. In Home Assistant, press `button.tablet_load_start_url`.

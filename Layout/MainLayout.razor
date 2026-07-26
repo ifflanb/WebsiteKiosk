@@ -1,14 +1,13 @@
 ﻿@inherits LayoutComponentBase
 
 <div class="app-shell">
-    <nav class="top-nav">
-        <div class="app-branding">
-            <span class="app-branding-name">Website Kiosk</span>
+    <header class="navbar navbar-dark bg-primary shadow-sm">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">Website Kiosk</span>
         </div>
-        <NavLink href="/" Match="NavLinkMatch.All">Home</NavLink>
-    </nav>
+    </header>
 
-    <main class="content-shell">
+    <main class="content-shell container py-4">
         @Body
     </main>
 </div>

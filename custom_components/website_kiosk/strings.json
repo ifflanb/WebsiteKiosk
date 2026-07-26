@@ -98,32 +98,6 @@
           "description": "Android deep link fallback"
         }
       }
-    },
-    "set_settings": {
-      "name": "Set Settings",
-      "description": "Set HA-managed runtime settings for a kiosk device",
-      "fields": {
-        "device_id": {
-          "name": "Device ID",
-          "description": "Kiosk device identifier"
-        },
-        "websites": {
-          "name": "Websites",
-          "description": "List of websites to rotate"
-        },
-        "rotate_frequency_seconds": {
-          "name": "Rotate Frequency Seconds",
-          "description": "Rotation interval in seconds"
-        },
-        "start_url": {
-          "name": "Start URL",
-          "description": "Optional URL loaded by load start URL action"
-        },
-        "screen_off_url": {
-          "name": "Screen Off URL",
-          "description": "Optional URL shown when tablet screen is off"
-        }
-      }
     }
   }
 }
