@@ -1,0 +1,98 @@
+load_url:
+  name: Load URL
+  description: Queue a command for a kiosk device to load a specific URL.
+  fields:
+    device_id:
+      name: Device ID
+      description: Kiosk device identifier configured in this integration.
+      required: true
+      selector:
+        text:
+    url:
+      name: URL
+      description: Absolute URL to load on the kiosk.
+      required: true
+      selector:
+        text:
+
+load_start_url:
+  name: Load Start URL
+  description: Queue a command for a kiosk device to load its configured start URL.
+  fields:
+    device_id:
+      name: Device ID
+      description: Kiosk device identifier configured in this integration.
+      required: true
+      selector:
+        text:
+
+start_application:
+  name: Start Application
+  description: Queue an Android start_application command for the kiosk.
+  fields:
+    device_id:
+      name: Device ID
+      description: Kiosk device identifier configured in this integration.
+      required: true
+      selector:
+        text:
+    app_intent:
+      name: App Intent URI
+      description: Full Android intent URI (preferred when available).
+      required: false
+      selector:
+        text:
+    package_name:
+      name: Package Name
+      description: Android package name used as a fallback intent target.
+      required: false
+      selector:
+        text:
+    deep_link_url:
+      name: Deep Link URL
+      description: Android deep link URL fallback.
+      required: false
+      selector:
+        text:
+
+set_settings:
+  name: Set Settings
+  description: Set HA-managed runtime settings for a kiosk device.
+  fields:
+    device_id:
+      name: Device ID
+      description: Kiosk device identifier configured in this integration.
+      required: true
+      selector:
+        text:
+    websites:
+      name: Websites
+      description: List of websites to rotate, each with url and optional order.
+      required: false
+      example:
+        - url: https://sharptools.io/dashboard/view/abc
+          order: 1
+        - url: https://example.com
+          order: 2
+      selector:
+        object:
+    rotate_frequency_seconds:
+      name: Rotate Frequency Seconds
+      description: Rotation interval in seconds.
+      required: false
+      selector:
+        number:
+          min: 1
+          mode: box
+    start_url:
+      name: Start URL
+      description: Optional URL loaded by the tablet_load_start_url action.
+      required: false
+      selector:
+        text:
+    screen_off_url:
+      name: Screen Off URL
+      description: Optional URL shown when tablet_screen is turned off.
+      required: false
+      selector:
+        text:

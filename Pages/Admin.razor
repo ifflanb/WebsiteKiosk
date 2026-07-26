@@ -1,0 +1,345 @@
+@page "/admin"
+@using System.Text.Json
+@using WebsiteKiosk.Models
+@using WebsiteKiosk.Services
+@inject WebsiteConfigurationStore ConfigurationStore
+@inject IJSRuntime JsRuntime
+@inject NavigationManager Navigation
+
+<PageTitle>Admin</PageTitle>
+
+<h1>Website Admin</h1>
+<div class="admin-actions">
+    <button type="button" class="secondary" @onclick="GoBackToHome">Back</button>
+    <a class="secondary" href="https://sharptools.io" target="_top" rel="external">SharpTools Sign In</a>
+</div>
+
+<div class="admin-page">
+    <p>Add URLs and display order, then save configuration.</p>
+
+    @if (!string.IsNullOrWhiteSpace(StatusMessage))
+    {
+        <div class="admin-status">@StatusMessage</div>
+    }
+
+    <div class="admin-actions">
+        <label>
+            <InputCheckbox @bind-Value="IsKioskMode" @bind-Value:after="OnKioskModeChanged" />
+            Set to kiosk mode
+        </label>
+    </div>
+
+    <div class="admin-actions">
+        <label>
+            Rotate frequency (secs)
+            <InputNumber class="admin-order" @bind-Value="RotateFrequencySeconds" min="1" />
+        </label>
+    </div>
+
+    <h2>Integration</h2>
+
+    <div class="admin-settings">
+        <div class="admin-setting-row">
+            <label for="integration-command-url">Command URL (Home Assistant endpoint)</label>
+            <InputText id="integration-command-url" class="admin-url" @bind-Value="IntegrationCommandUrl" />
+        </div>
+        <div class="admin-setting-row">
+            <label for="integration-access-token">Access token (optional)</label>
+            <InputText id="integration-access-token" class="admin-url" @bind-Value="IntegrationAccessToken" />
+        </div>
+        <div class="admin-setting-row">
+            <label for="integration-poll-seconds">Poll frequency (secs)</label>
+            <InputNumber id="integration-poll-seconds" class="admin-order" @bind-Value="IntegrationPollFrequencySeconds" min="1" />
+        </div>
+        <div class="admin-setting-row">
+            <label for="integration-start-url">Start URL override (optional)</label>
+            <InputText id="integration-start-url" class="admin-url" @bind-Value="StartUrl" />
+        </div>
+        <div class="admin-setting-row">
+            <label for="integration-screen-off-url">Screen off URL override (optional)</label>
+            <InputText id="integration-screen-off-url" class="admin-url" @bind-Value="ScreenOffUrl" />
+        </div>
+    </div>
+
+    @if (HasIntegrationCommandUrl)
+    {
+        <p class="admin-note">Home Assistant-managed settings are enabled. Rotation URLs, rotate frequency, start URL, and screen off URL should be set from Home Assistant using the <code>website_kiosk.set_settings</code> service. Values below act as local fallback when Home Assistant is unavailable.</p>
+    }
+
+    <h2>Local fallback settings</h2>
+
+    <div class="admin-table">
+        <div class="admin-table-header">Order</div>
+        <div class="admin-table-header">Website URL</div>
+        <div class="admin-table-header"></div>
+
+        @foreach (var row in Rows)
+        {
+            <div class="admin-row" @key="row">
+                <InputNumber class="admin-order" @bind-Value="row.Order" />
+                <InputText class="admin-url" @bind-Value="row.Url" />
+                <button type="button" class="secondary" @onclick="() => RemoveRow(row)">Remove</button>
+            </div>
+        }
+    </div>
+
+    <div class="admin-actions">
+        <button type="button" @onclick="AddRow">Add URL</button>
+        <button type="button" @onclick="SaveAsync">Save</button>
+        <button type="button" class="secondary" @onclick="DownloadBackupAsync">Download JSON Backup</button>
+    </div>
+
+    <div class="admin-actions">
+        <label for="config-upload">Restore from JSON:</label>
+        <InputFile id="config-upload" OnChange="ImportAsync" accept=".json,application/json" />
+    </div>
+</div>
+
+@code {
+    private const string BackupFileName = "website-kiosk-config.json";
+    private List<WebsiteEntry> Rows { get; set; } = [];
+    private bool IsKioskMode { get; set; }
+    private int RotateFrequencySeconds { get; set; } = WebsiteKioskConfiguration.DefaultRotateFrequencySeconds;
+    private string? IntegrationCommandUrl { get; set; }
+    private string? IntegrationAccessToken { get; set; }
+    private int IntegrationPollFrequencySeconds { get; set; } = WebsiteKioskConfiguration.DefaultIntegrationPollFrequencySeconds;
+    private string? StartUrl { get; set; }
+    private string? ScreenOffUrl { get; set; }
+
+    private string? StatusMessage { get; set; }
+    private bool HasIntegrationCommandUrl => !string.IsNullOrWhiteSpace(IntegrationCommandUrl);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var saved = await ConfigurationStore.LoadAsync();
+        Rows = saved.Websites.OrderBy(x => x.Order).ToList();
+        IsKioskMode = saved.IsKioskMode || (Rows.Count > 0 && Rows.All(x => HasKioskModeEnabled(x.Url)));
+        RotateFrequencySeconds = saved.RotateFrequencySeconds;
+        IntegrationCommandUrl = saved.IntegrationCommandUrl;
+        IntegrationAccessToken = saved.IntegrationAccessToken;
+        IntegrationPollFrequencySeconds = saved.IntegrationPollFrequencySeconds;
+        StartUrl = saved.StartUrl;
+        ScreenOffUrl = saved.ScreenOffUrl;
+
+        if (Rows.Count == 0)
+        {
+            Rows.Add(new WebsiteEntry { Order = 1 });
+        }
+    }
+
+    private void AddRow()
+    {
+        var nextOrder = Rows.Count == 0 ? 1 : Rows.Max(x => x.Order) + 1;
+        Rows.Add(new WebsiteEntry { Order = nextOrder });
+    }
+
+    private void RemoveRow(WebsiteEntry row)
+    {
+        Rows.Remove(row);
+
+        if (Rows.Count == 0)
+        {
+            Rows.Add(new WebsiteEntry { Order = 1 });
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        var configuration = BuildConfiguration();
+
+        await ConfigurationStore.SaveAsync(configuration);
+        StatusMessage = $"Saved {configuration.Websites.Count} website URL(s).";
+    }
+
+    private async Task DownloadBackupAsync()
+    {
+        var configuration = BuildConfiguration();
+
+        await DownloadBackupAsync(configuration);
+        StatusMessage = $"Downloaded JSON backup with {configuration.Websites.Count} website URL(s).";
+    }
+
+    private async Task DownloadBackupAsync(WebsiteKioskConfiguration configuration)
+    {
+        var json = ConfigurationStore.ToJson(configuration);
+        await JsRuntime.InvokeVoidAsync("websiteKiosk.downloadJsonBackup", BackupFileName, json);
+    }
+
+    private async Task ImportAsync(InputFileChangeEventArgs args)
+    {
+        var file = args.File;
+        await using var stream = file.OpenReadStream(1024 * 1024);
+        using var reader = new StreamReader(stream);
+        var json = await reader.ReadToEndAsync();
+
+        WebsiteKioskConfiguration importedConfiguration;
+        try
+        {
+            importedConfiguration = ConfigurationStore.ParseJson(json);
+        }
+        catch (JsonException)
+        {
+            StatusMessage = "Invalid JSON file.";
+            return;
+        }
+
+        var imported = importedConfiguration.Websites
+                .Where(x => IsValidUrl(x.Url))
+                .OrderBy(x => x.Order)
+                .Select(x => new WebsiteEntry
+                {
+                    Url = x.Url.Trim(),
+                    Order = x.Order
+                })
+                .ToList();
+
+        Rows = imported.Count > 0
+            ? imported.ToList()
+            : [new WebsiteEntry { Order = 1 }];
+        IsKioskMode = importedConfiguration.IsKioskMode || (Rows.Count > 0 && Rows.All(x => HasKioskModeEnabled(x.Url)));
+        RotateFrequencySeconds = importedConfiguration.RotateFrequencySeconds;
+        IntegrationCommandUrl = importedConfiguration.IntegrationCommandUrl;
+        IntegrationAccessToken = importedConfiguration.IntegrationAccessToken;
+        IntegrationPollFrequencySeconds = importedConfiguration.IntegrationPollFrequencySeconds;
+        StartUrl = importedConfiguration.StartUrl;
+        ScreenOffUrl = importedConfiguration.ScreenOffUrl;
+
+        if (IsKioskMode)
+        {
+            OnKioskModeChanged();
+        }
+
+        await ConfigurationStore.SaveAsync(BuildConfiguration());
+        StatusMessage = $"Restored {imported.Count} website URL(s) from JSON.";
+    }
+
+    private void OnKioskModeChanged()
+    {
+        if (!IsKioskMode)
+        {
+            return;
+        }
+
+        foreach (var row in Rows)
+        {
+            if (IsValidUrl(row.Url))
+            {
+                row.Url = ApplyKioskMode(row.Url!.Trim());
+            }
+        }
+    }
+
+    private WebsiteKioskConfiguration BuildConfiguration()
+    {
+        var validRows = Rows
+            .Where(x => IsValidUrl(x.Url))
+            .OrderBy(x => x.Order)
+            .Select(x => new WebsiteEntry
+            {
+                Url = IsKioskMode ? ApplyKioskMode(x.Url!.Trim()) : x.Url!.Trim(),
+                Order = x.Order
+            })
+            .ToList();
+
+        return new WebsiteKioskConfiguration
+        {
+            Websites = validRows,
+            IsKioskMode = IsKioskMode,
+            RotateFrequencySeconds = RotateFrequencySeconds <= 0
+                ? WebsiteKioskConfiguration.DefaultRotateFrequencySeconds
+                : RotateFrequencySeconds,
+            IntegrationCommandUrl = NormalizeOptionalHttpUrl(IntegrationCommandUrl),
+            IntegrationAccessToken = string.IsNullOrWhiteSpace(IntegrationAccessToken)
+                ? null
+                : IntegrationAccessToken.Trim(),
+            IntegrationPollFrequencySeconds = IntegrationPollFrequencySeconds <= 0
+                ? WebsiteKioskConfiguration.DefaultIntegrationPollFrequencySeconds
+                : IntegrationPollFrequencySeconds,
+            StartUrl = NormalizeOptionalHttpUrl(StartUrl),
+            ScreenOffUrl = NormalizeOptionalHttpUrl(ScreenOffUrl)
+        };
+    }
+
+    private static string? NormalizeOptionalHttpUrl(string? value)
+    {
+        var candidate = value?.Trim();
+        return IsValidUrl(candidate) ? candidate : null;
+    }
+
+    private static bool HasKioskModeEnabled(string? url)
+    {
+        if (!IsValidUrl(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        var query = uri.Query.TrimStart('?');
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return false;
+        }
+
+        foreach (var part in query.Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var keyValue = part.Split('=', 2);
+            var key = Uri.UnescapeDataString(keyValue[0]);
+            if (!key.Equals("kiosk", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var value = keyValue.Length > 1 ? Uri.UnescapeDataString(keyValue[1]) : string.Empty;
+            return value.Equals("true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
+    }
+
+    private static string ApplyKioskMode(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return url;
+        }
+
+        var builder = new UriBuilder(uri);
+        var query = builder.Query.TrimStart('?');
+        var parameters = string.IsNullOrWhiteSpace(query)
+            ? []
+            : query.Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+        var hasKiosk = false;
+        for (var i = 0; i < parameters.Count; i++)
+        {
+            var keyValue = parameters[i].Split('=', 2);
+            var key = Uri.UnescapeDataString(keyValue[0]);
+            if (!key.Equals("kiosk", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            parameters[i] = "kiosk=true";
+            hasKiosk = true;
+        }
+
+        if (!hasKiosk)
+        {
+            parameters.Add("kiosk=true");
+        }
+
+        builder.Query = string.Join("&", parameters);
+        return builder.Uri.ToString();
+    }
+
+    private static bool IsValidUrl(string? value)
+    {
+        return Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+    }
+
+    private void GoBackToHome()
+    {
+        Navigation.NavigateTo("/");
+    }
+
+}

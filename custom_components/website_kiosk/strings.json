@@ -1,0 +1,103 @@
+{
+  "title": "Website Kiosk",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add kiosk device",
+        "description": "Configure a device that will poll for commands.",
+        "data": {
+          "device_id": "Device ID",
+          "name": "Name",
+          "access_token": "Access token"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure kiosk device",
+        "description": "Update the kiosk device settings.",
+        "data": {
+          "device_id": "Device ID",
+          "name": "Name",
+          "access_token": "Access token"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "reconfigure_successful": "Kiosk device was updated."
+    }
+  },
+  "services": {
+    "load_url": {
+      "name": "Load URL",
+      "description": "Queue a command to load a URL on a kiosk device",
+      "fields": {
+        "device_id": {
+          "name": "Device ID",
+          "description": "Kiosk device identifier"
+        },
+        "url": {
+          "name": "URL",
+          "description": "Absolute URL to load"
+        }
+      }
+    },
+    "load_start_url": {
+      "name": "Load Start URL",
+      "description": "Queue a command to load the configured start URL",
+      "fields": {
+        "device_id": {
+          "name": "Device ID",
+          "description": "Kiosk device identifier"
+        }
+      }
+    },
+    "start_application": {
+      "name": "Start Application",
+      "description": "Queue an Android start_application command",
+      "fields": {
+        "device_id": {
+          "name": "Device ID",
+          "description": "Kiosk device identifier"
+        },
+        "app_intent": {
+          "name": "App Intent URI",
+          "description": "Full Android intent URI"
+        },
+        "package_name": {
+          "name": "Package Name",
+          "description": "Android package fallback"
+        },
+        "deep_link_url": {
+          "name": "Deep Link URL",
+          "description": "Android deep link fallback"
+        }
+      }
+    },
+    "set_settings": {
+      "name": "Set Settings",
+      "description": "Set HA-managed runtime settings for a kiosk device",
+      "fields": {
+        "device_id": {
+          "name": "Device ID",
+          "description": "Kiosk device identifier"
+        },
+        "websites": {
+          "name": "Websites",
+          "description": "List of websites to rotate"
+        },
+        "rotate_frequency_seconds": {
+          "name": "Rotate Frequency Seconds",
+          "description": "Rotation interval in seconds"
+        },
+        "start_url": {
+          "name": "Start URL",
+          "description": "Optional URL loaded by load start URL action"
+        },
+        "screen_off_url": {
+          "name": "Screen Off URL",
+          "description": "Optional URL shown when tablet screen is off"
+        }
+      }
+    }
+  }
+}

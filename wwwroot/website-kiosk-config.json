@@ -1,0 +1,42 @@
+{
+  "Websites": [
+    {
+      "Url": "https://sharptools.io/dashboard/view/uv3dIZ0Xlcey0oNTlJC3",
+      "Order": 1
+    },
+    {
+      "Url": "https://sharptools.io/dashboard/view/VbRCOOhnLPK3msxEZ9kY",
+      "Order": 2
+    },
+    {
+      "Url": "https://sharptools.io/dashboard/view/OTYZUxfkSmtIl3EaTmdg",
+      "Order": 3
+    },
+    {
+      "Url": "https://sharptools.io/dashboard/view/BATgtm0Z6QPWQ3Ltp5VO",
+      "Order": 4
+    },
+    {
+      "Url": "https://sharptools.io/dashboard/view/hCDzKiVU2P3GdLeYEJ4z",
+      "Order": 5
+    },
+    {
+      "Url": "https://sharptools.io/dashboard/view/BNyOhW2dFRtNwO7RqQBl",
+      "Order": 6
+    },
+    {
+      "Url": "https://sharptools.io/dashboard/view/4b6aa0OTaRLdNQqWcf8p",
+      "Order": 7
+    },
+    {
+      "Url": "https://sharptools.io/dashboard/view/aUfwnGR8a5Pbd4q1KzDI",
+      "Order": 8
+    },
+    {
+      "Url": "https://sharptools.io/dashboard/view/m3gzLS4djwdDuBsSecvN",
+      "Order": 9
+    }
+  ],
+  "RotateFrequencySeconds": 30,
+  "IsKioskMode": false
+}

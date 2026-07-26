@@ -1,0 +1,59 @@
+{
+  "title": "Website Kiosk",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add kiosk device",
+        "description": "Configure a device that will poll for commands.",
+        "data": {
+          "device_id": "Device ID",
+          "name": "Name",
+          "access_token": "Access token"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure kiosk device",
+        "description": "Update the kiosk device settings.",
+        "data": {
+          "device_id": "Device ID",
+          "name": "Name",
+          "access_token": "Access token"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "reconfigure_successful": "Kiosk device was updated."
+    }
+  },
+  "entity": {
+    "switch": {
+      "tablet_screen": {
+        "name": "Tablet Screen"
+      }
+    },
+    "button": {
+      "tablet_load_start_url": {
+        "name": "Tablet Load Start URL"
+      }
+    }
+  },
+  "services": {
+    "load_url": {
+      "name": "Load URL",
+      "description": "Queue a command to load a URL on a kiosk device"
+    },
+    "load_start_url": {
+      "name": "Load Start URL",
+      "description": "Queue a command to load the configured start URL"
+    },
+    "start_application": {
+      "name": "Start Application",
+      "description": "Queue an Android app start command"
+    },
+    "set_settings": {
+      "name": "Set Settings",
+      "description": "Set HA-managed runtime settings for a kiosk device"
+    }
+  }
+}

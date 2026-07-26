@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebsiteKiosk</title>
+    <base href="/" />
+    <link rel="preload" id="webassembly" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#111111" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Website Kiosk" />
+    <link rel="icon" type="image/png" href="images/logo.png" />
+    <link rel="apple-touch-icon" href="images/logo.png" />
+    <link rel="stylesheet" href="css/app.css" />
+    <!-- If you add any scoped CSS files, uncomment the following to load them
+    <link href="WebsiteKiosk.styles.css" rel="stylesheet" /> -->
+    <script type="importmap"></script>
+</head>
+
+<body>
+    <div id="app">
+        <svg class="loading-progress">
+            <circle r="40%" cx="50%" cy="50%" />
+            <circle r="40%" cx="50%" cy="50%" />
+        </svg>
+        <div class="loading-progress-text"></div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+    <script>
+        window.websiteKiosk = (() => {
+            const FadeOutDelayMs = 180;
+            const FadeInFallbackMs = 1400;
+            let navigationToken = 0;
+
+            const isSharpToolsDashboardUrl = (value) => {
+                try {
+                    const url = new URL(value);
+                    const isSharpToolsHost = url.hostname === "sharptools.io" || url.hostname.endsWith(".sharptools.io");
+                    return isSharpToolsHost && url.pathname.startsWith("/dashboard/view/");
+                } catch {
+                    return false;
+                }
+            };
+
+            const trySharpToolsClientSideNavigate = (frame, previousUrl, nextUrl) => {
+                if (!frame?.contentWindow || !isSharpToolsDashboardUrl(previousUrl) || !isSharpToolsDashboardUrl(nextUrl)) {
+                    return false;
+                }
+
+                const parsed = new URL(nextUrl);
+                const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+                frame.contentWindow.postMessage({ action: "navigate", route: { path } }, "*");
+                return true;
+            };
+
+            const navigateFrame = (frameId, previousUrl, nextUrl) => {
+                const frame = document.getElementById(frameId);
+                if (!frame || !nextUrl) {
+                    return false;
+                }
+
+                const currentToken = ++navigationToken;
+                frame.style.opacity = "0";
+
+                window.setTimeout(() => {
+                    if (currentToken !== navigationToken) {
+                        return;
+                    }
+
+                    const usedClientSideNavigation = trySharpToolsClientSideNavigate(frame, previousUrl, nextUrl);
+                    if (usedClientSideNavigation) {
+                        frame.style.opacity = "1";
+                        return;
+                    }
+
+                    frame.src = nextUrl;
+                }, FadeOutDelayMs);
+
+                frame.onload = () => {
+                    if (currentToken === navigationToken) {
+                        frame.style.opacity = "1";
+                    }
+                };
+
+                window.setTimeout(() => {
+                    if (currentToken === navigationToken) {
+                        frame.style.opacity = "1";
+                    }
+                }, FadeInFallbackMs);
+
+                return true;
+            };
+
+            const downloadJsonBackup = (fileName, json) => {
+                const blob = new Blob([json], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = fileName;
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+                URL.revokeObjectURL(url);
+            };
+
+            const openSharpToolsSignIn = () => {
+                const signInUrl = "https://sharptools.io";
+                const opened = window.open(signInUrl, "_blank", "noopener,noreferrer");
+
+                if (opened) {
+                    opened.focus();
+                    return;
+                }
+
+                window.location.assign(signInUrl);
+            };
+
+            const startApplication = (appIntent, packageName, deepLinkUrl) => {
+                const userAgent = navigator.userAgent || "";
+                const isAndroid = /Android/i.test(userAgent);
+
+                if (!isAndroid) {
+                    return false;
+                }
+
+                if (appIntent) {
+                    window.location.assign(appIntent);
+                    return true;
+                }
+
+                if (deepLinkUrl) {
+                    window.location.assign(deepLinkUrl);
+                    return true;
+                }
+
+                if (packageName) {
+                    window.location.assign(`intent://#Intent;package=${packageName};end`);
+                    return true;
+                }
+
+                return false;
+            };
+
+            return {
+                navigateFrame,
+                downloadJsonBackup,
+                openSharpToolsSignIn,
+                startApplication
+            };
+        })();
+    </script>
+    <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+</body>
+
+</html>

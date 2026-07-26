@@ -1,0 +1,67 @@
+# User files
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Environment files
+.env
+.env.*
+
+# Build output
+bin/
+obj/
+out/
+artifacts/
+
+# IDE
+.vs/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+
+# Rider / ReSharper
+.idea/
+_ReSharper*/
+*.DotSettings.user
+
+# Test results
+TestResults/
+*.trx
+coverage*
+BenchmarkDotNet.Artifacts/
+
+# Logs
+*.log
+logs/
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+
+# Node
+node_modules/
+
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+
+# Publish
+publish/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Runtime application data
+AppData/**
+!AppData/
+!AppData/scripts/
+!AppData/scripts/**

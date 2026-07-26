@@ -1,0 +1,749 @@
+﻿@page "/"
+@implements IDisposable
+@using System.Text.Json
+@using WebsiteKiosk.Models
+@using WebsiteKiosk.Services
+@inject WebsiteConfigurationStore ConfigurationStore
+@inject IJSRuntime JsRuntime
+@inject HttpClient HttpClient
+@inject NavigationManager Navigation
+
+<PageTitle>Home</PageTitle>
+
+@if (IsRunning)
+{
+    <div class="slideshow-stage">
+        <iframe id="website-kiosk-frame" class="slideshow-frame" title="Website Kiosk"></iframe>
+
+        @if (IsScreenOff)
+        {
+            <div class="slideshow-screen-off" aria-hidden="true"></div>
+        }
+
+        <button type="button" class="slideshow-overlay-button left" aria-label="Previous URL" @onclick="GoPreviousAsync">&#8249;</button>
+        <button type="button" class="slideshow-overlay-button right" aria-label="Next URL" @onclick="GoNextAsync">&#8250;</button>
+        <button type="button" class="slideshow-overlay-button bottom-center @(IsPaused ? "paused" : string.Empty)" aria-label="@(IsPaused ? "Resume slideshow" : "Pause slideshow")" @onclick="TogglePause">
+            @(IsPaused ? "▶" : "❚❚")
+        </button>
+        <button type="button" class="slideshow-overlay-button bottom-right" aria-label="Open settings" @onclick="OpenSettingsAsync">⚙</button>
+    </div>
+}
+else
+{
+    <h1>Website Kiosk</h1>
+
+    <div class="admin-actions">
+        <a class="secondary" href="https://sharptools.io" target="_top" rel="external">SharpTools Sign In</a>
+    </div>
+
+    @if (Websites.Count == 0)
+    {
+        <p>No configured websites found. Open <a href="/admin">Admin</a> to add URLs.</p>
+    }
+    else
+    {
+        <p>Configured URLs: @Websites.Count</p>
+        <div class="admin-actions">
+            <button type="button" class="@(IsRunning ? string.Empty : "active-control")" @onclick="StartSlideshowAsync" disabled="@IsRunning">Start Slideshow</button>
+            <button type="button" class="secondary @(IsRunning ? "active-control" : string.Empty)" @onclick="StopSlideshowAsync" disabled="@(!IsRunning)">Stop Slideshow</button>
+        </div>
+        <p>@StatusMessage</p>
+    }
+}
+
+@code {
+    private const string SlideshowFrameId = "website-kiosk-frame";
+
+    private CancellationTokenSource? _slideshowCancellation;
+    private CancellationTokenSource? _integrationCancellation;
+    private bool _pendingInitialNavigation;
+    private bool _slideshowLoopStarted;
+    private bool _wasPausedBeforeScreenOff;
+    private List<WebsiteEntry> Websites { get; set; } = [];
+    private int RotateFrequencySeconds { get; set; } = WebsiteKioskConfiguration.DefaultRotateFrequencySeconds;
+    private int IntegrationPollFrequencySeconds { get; set; } = WebsiteKioskConfiguration.DefaultIntegrationPollFrequencySeconds;
+    private int CurrentIndex { get; set; }
+    private string? LastNavigatedUrl { get; set; }
+    private string? ScreenOffReturnUrl { get; set; }
+    private string? PendingCommandNavigationUrl { get; set; }
+    private string? StartUrl { get; set; }
+    private string? ScreenOffUrl { get; set; }
+    private string? IntegrationCommandUrl { get; set; }
+    private string? IntegrationSettingsUrl { get; set; }
+    private string? IntegrationAccessToken { get; set; }
+    private string? LastProcessedCommandSignature { get; set; }
+    private string? LastSettingsSignature { get; set; }
+
+    private bool IsRunning { get; set; }
+    private bool IsPaused { get; set; }
+    private bool IsScreenOff { get; set; }
+
+    private string StatusMessage { get; set; } = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var saved = await ConfigurationStore.LoadAsync();
+        RotateFrequencySeconds = saved.RotateFrequencySeconds;
+        IntegrationPollFrequencySeconds = saved.IntegrationPollFrequencySeconds;
+        StartUrl = saved.StartUrl;
+        ScreenOffUrl = saved.ScreenOffUrl;
+        IntegrationCommandUrl = saved.IntegrationCommandUrl;
+        IntegrationSettingsUrl = BuildSettingsUrl(saved.IntegrationCommandUrl);
+        IntegrationAccessToken = saved.IntegrationAccessToken;
+
+        Websites = saved.Websites
+            .Where(x => IsValidHttpUrl(x.Url))
+            .OrderBy(x => x.Order)
+            .Select(x => new WebsiteEntry
+            {
+                Url = x.Url.Trim(),
+                Order = x.Order
+            })
+            .ToList();
+
+        StatusMessage = Websites.Count == 0
+            ? "No URLs available to rotate."
+            : "Click Start Slideshow to begin rotating URLs.";
+
+        await LoadIntegrationSettingsAsync();
+        StartIntegrationPolling();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsRunning && IsValidHttpUrl(PendingCommandNavigationUrl))
+        {
+            var targetUrl = PendingCommandNavigationUrl;
+            PendingCommandNavigationUrl = null;
+
+            try
+            {
+                await JsRuntime.InvokeVoidAsync("websiteKiosk.navigateFrame", SlideshowFrameId, LastNavigatedUrl, targetUrl);
+                LastNavigatedUrl = targetUrl;
+            }
+            catch (JSException ex)
+            {
+                IsRunning = false;
+                IsPaused = false;
+                StatusMessage = ex.Message;
+                await InvokeAsync(StateHasChanged);
+            }
+
+            return;
+        }
+
+        if (!_pendingInitialNavigation || !IsRunning || Websites.Count == 0)
+        {
+            return;
+        }
+
+        _pendingInitialNavigation = false;
+
+        try
+        {
+            await NavigateToCurrentUrlAsync();
+
+            if (_slideshowCancellation is not null && !_slideshowLoopStarted)
+            {
+                _slideshowLoopStarted = true;
+                _ = RunSlideshowAsync(_slideshowCancellation.Token);
+            }
+        }
+        catch (JSException ex)
+        {
+            IsRunning = false;
+            IsPaused = false;
+            StatusMessage = ex.Message;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task StartSlideshowAsync()
+    {
+        if (Websites.Count == 0 || IsRunning)
+        {
+            return;
+        }
+
+        CurrentIndex = 0;
+        LastNavigatedUrl = null;
+        IsRunning = true;
+        IsPaused = false;
+        IsScreenOff = false;
+        _pendingInitialNavigation = true;
+        _slideshowLoopStarted = false;
+        StatusMessage = "Slideshow running.";
+        _slideshowCancellation = new CancellationTokenSource();
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RunSlideshowAsync(CancellationToken token)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(RotateFrequencySeconds), token);
+
+                if (IsPaused)
+                {
+                    continue;
+                }
+
+                CurrentIndex = (CurrentIndex + 1) % Websites.Count;
+                await NavigateToCurrentUrlAsync();
+
+                await InvokeAsync(() =>
+                {
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (JSException ex)
+        {
+            await InvokeAsync(() =>
+            {
+                IsRunning = false;
+                StatusMessage = ex.Message;
+                StateHasChanged();
+            });
+        }
+    }
+
+    private Task StopSlideshowAsync()
+    {
+        _slideshowCancellation?.Cancel();
+        _slideshowCancellation?.Dispose();
+        _slideshowCancellation = null;
+        _pendingInitialNavigation = false;
+        _slideshowLoopStarted = false;
+        IsRunning = false;
+        IsPaused = false;
+        IsScreenOff = false;
+        LastNavigatedUrl = null;
+        ScreenOffReturnUrl = null;
+        StatusMessage = "Slideshow stopped.";
+
+        return Task.CompletedTask;
+    }
+
+    private async Task GoPreviousAsync()
+    {
+        if (!IsRunning || Websites.Count == 0)
+        {
+            return;
+        }
+
+        CurrentIndex = (CurrentIndex - 1 + Websites.Count) % Websites.Count;
+        await NavigateToCurrentUrlAsync();
+    }
+
+    private async Task GoNextAsync()
+    {
+        if (!IsRunning || Websites.Count == 0)
+        {
+            return;
+        }
+
+        CurrentIndex = (CurrentIndex + 1) % Websites.Count;
+        await NavigateToCurrentUrlAsync();
+    }
+
+    private void TogglePause()
+    {
+        if (!IsRunning)
+        {
+            return;
+        }
+
+        IsPaused = !IsPaused;
+    }
+
+    private void StartIntegrationPolling()
+    {
+        if (string.IsNullOrWhiteSpace(IntegrationCommandUrl))
+        {
+            return;
+        }
+
+        _integrationCancellation?.Cancel();
+        _integrationCancellation?.Dispose();
+        _integrationCancellation = new CancellationTokenSource();
+        _ = RunIntegrationPollingAsync(_integrationCancellation.Token);
+    }
+
+    private async Task RunIntegrationPollingAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await LoadIntegrationSettingsAsync(token);
+
+                var command = await FetchIntegrationCommandAsync(token);
+                if (command is not null)
+                {
+                    await InvokeAsync(async () =>
+                    {
+                        await HandleIntegrationCommandAsync(command);
+                        StateHasChanged();
+                    });
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch
+            {
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(IntegrationPollFrequencySeconds), token);
+        }
+    }
+
+    private async Task<KioskIntegrationCommand?> FetchIntegrationCommandAsync(CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(IntegrationCommandUrl))
+        {
+            return null;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, IntegrationCommandUrl);
+        if (!string.IsNullOrWhiteSpace(IntegrationAccessToken))
+        {
+            request.Headers.Authorization = new("Bearer", IntegrationAccessToken);
+        }
+
+        using var response = await HttpClient.SendAsync(request, token);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var json = await response.Content.ReadAsStringAsync(token);
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        var command = ParseCommand(json);
+        if (command is null)
+        {
+            return null;
+        }
+
+        var signature = string.IsNullOrWhiteSpace(command.Id)
+            ? json.Trim()
+            : command.Id.Trim();
+
+        if (string.Equals(signature, LastProcessedCommandSignature, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        LastProcessedCommandSignature = signature;
+        return command;
+    }
+
+    private async Task LoadIntegrationSettingsAsync(CancellationToken token = default)
+    {
+        if (string.IsNullOrWhiteSpace(IntegrationSettingsUrl))
+        {
+            return;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, IntegrationSettingsUrl);
+        if (!string.IsNullOrWhiteSpace(IntegrationAccessToken))
+        {
+            request.Headers.Authorization = new("Bearer", IntegrationAccessToken);
+        }
+
+        using var response = await HttpClient.SendAsync(request, token);
+        if (!response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var json = await response.Content.ReadAsStringAsync(token);
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return;
+        }
+
+        var signature = json.Trim();
+        if (string.Equals(signature, LastSettingsSignature, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        ApplyIntegrationSettings(doc.RootElement);
+        LastSettingsSignature = signature;
+    }
+
+    private void ApplyIntegrationSettings(JsonElement root)
+    {
+        if (TryGetProperty(root, "rotate_frequency_seconds", out var rotate) && rotate.ValueKind == JsonValueKind.Number && rotate.TryGetInt32(out var rotateSeconds) && rotateSeconds > 0)
+        {
+            RotateFrequencySeconds = rotateSeconds;
+        }
+
+        var loadedWebsites = new List<WebsiteEntry>();
+        if (TryGetProperty(root, "websites", out var websitesElement) && websitesElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in websitesElement.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var url = GetString(item, "url");
+                if (!IsValidHttpUrl(url))
+                {
+                    continue;
+                }
+
+                var order = 1;
+                if (TryGetProperty(item, "order", out var orderElement) && orderElement.ValueKind == JsonValueKind.Number && orderElement.TryGetInt32(out var parsedOrder) && parsedOrder > 0)
+                {
+                    order = parsedOrder;
+                }
+
+                loadedWebsites.Add(new WebsiteEntry
+                {
+                    Url = url!.Trim(),
+                    Order = order,
+                });
+            }
+
+            Websites = loadedWebsites
+                .OrderBy(x => x.Order)
+                .ToList();
+
+            if (CurrentIndex >= Websites.Count)
+            {
+                CurrentIndex = 0;
+            }
+
+            StatusMessage = Websites.Count == 0
+                ? "No URLs available to rotate."
+                : "Click Start Slideshow to begin rotating URLs.";
+        }
+
+        var startUrl = GetString(root, "start_url");
+        StartUrl = IsValidHttpUrl(startUrl)
+            ? startUrl
+            : null;
+
+        var screenOffUrl = GetString(root, "screen_off_url");
+        ScreenOffUrl = IsValidHttpUrl(screenOffUrl)
+            ? screenOffUrl
+            : null;
+    }
+
+    private static string? BuildSettingsUrl(string? commandUrl)
+    {
+        if (!Uri.TryCreate(commandUrl, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        var path = uri.AbsolutePath;
+        var marker = "/command/";
+        var index = path.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (index < 0)
+        {
+            return null;
+        }
+
+        var settingsPath = string.Concat(path.AsSpan(0, index), "/settings/", path.AsSpan(index + marker.Length));
+        var builder = new UriBuilder(uri)
+        {
+            Path = settingsPath,
+        };
+
+        return builder.Uri.ToString();
+    }
+
+    private static KioskIntegrationCommand? ParseCommand(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.Object)
+                {
+                    return MapCommand(item);
+                }
+            }
+
+            return null;
+        }
+
+        if (doc.RootElement.ValueKind == JsonValueKind.Object)
+        {
+            return MapCommand(doc.RootElement);
+        }
+
+        return null;
+    }
+
+    private static KioskIntegrationCommand MapCommand(JsonElement root)
+    {
+        var payload = TryGetProperty(root, "data", out var dataElement) && dataElement.ValueKind == JsonValueKind.Object
+            ? dataElement
+            : root;
+
+        return new KioskIntegrationCommand
+        {
+            Id = GetString(root, "id", "commandId", "event_id") ?? GetString(payload, "id", "commandId", "event_id"),
+            Command = GetString(root, "command", "service", "action", "name") ?? GetString(payload, "command", "service", "action", "name"),
+            Url = GetString(payload, "url", "uri", "targetUrl"),
+            Value = GetString(payload, "value", "state"),
+            Enabled = GetBool(payload, "enabled", "isOn", "on"),
+            AppIntent = GetString(payload, "appIntent", "intent", "intentUrl"),
+            PackageName = GetString(payload, "packageName", "package"),
+            DeepLinkUrl = GetString(payload, "deepLinkUrl", "deepLink", "appUrl")
+        };
+    }
+
+    private async Task HandleIntegrationCommandAsync(KioskIntegrationCommand command)
+    {
+        var normalized = NormalizeCommand(command.Command);
+
+        switch (normalized)
+        {
+            case "load_url":
+                await NavigateToExplicitUrlAsync(command.Url);
+                break;
+            case "load_start_url":
+                await NavigateToStartUrlAsync();
+                break;
+            case "screen_switch":
+                ApplyScreenSwitch(command);
+                break;
+            case "start_application":
+                await JsRuntime.InvokeVoidAsync("websiteKiosk.startApplication", command.AppIntent, command.PackageName, command.DeepLinkUrl);
+                break;
+        }
+    }
+
+    private static string NormalizeCommand(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var normalized = value.Trim().ToLowerInvariant()
+            .Replace('.', '_')
+            .Replace('-', '_')
+            .Replace(' ', '_');
+
+        return normalized switch
+        {
+            "kiosk_load_url" or "load_url" or "load_ur1" => "load_url",
+            "tablet_load_start_url" or "button_tablet_load_start_url" or "load_start_url" => "load_start_url",
+            "tablet_screen" or "switch_tablet_screen" or "screen" => "screen_switch",
+            "kiosk_start_application" or "start_application" => "start_application",
+            _ => normalized
+        };
+    }
+
+    private void ApplyScreenSwitch(KioskIntegrationCommand command)
+    {
+        var isOn = command.Enabled ?? ParseBoolean(command.Value) ?? true;
+
+        if (!isOn)
+        {
+            ScreenOffReturnUrl = LastNavigatedUrl;
+            _wasPausedBeforeScreenOff = IsPaused;
+            IsPaused = true;
+
+            if (IsValidHttpUrl(ScreenOffUrl))
+            {
+                _ = NavigateToExplicitUrlAsync(ScreenOffUrl);
+                IsScreenOff = false;
+            }
+            else
+            {
+                IsRunning = true;
+                IsScreenOff = true;
+            }
+
+            return;
+        }
+
+        IsScreenOff = false;
+        IsPaused = _wasPausedBeforeScreenOff;
+
+        if (IsValidHttpUrl(ScreenOffReturnUrl))
+        {
+            _ = NavigateToExplicitUrlAsync(ScreenOffReturnUrl);
+        }
+
+        ScreenOffReturnUrl = null;
+    }
+
+    private async Task NavigateToStartUrlAsync()
+    {
+        var target = IsValidHttpUrl(StartUrl)
+            ? StartUrl
+            : Websites.FirstOrDefault()?.Url;
+
+        await NavigateToExplicitUrlAsync(target);
+    }
+
+    private async Task NavigateToExplicitUrlAsync(string? targetUrl)
+    {
+        if (!IsValidHttpUrl(targetUrl))
+        {
+            return;
+        }
+
+        IsScreenOff = false;
+
+        var matchingIndex = Websites.FindIndex(x => string.Equals(x.Url, targetUrl, StringComparison.OrdinalIgnoreCase));
+        if (matchingIndex >= 0)
+        {
+            CurrentIndex = matchingIndex;
+        }
+
+        if (!IsRunning)
+        {
+            IsRunning = true;
+            IsPaused = false;
+            PendingCommandNavigationUrl = targetUrl;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        await JsRuntime.InvokeVoidAsync("websiteKiosk.navigateFrame", SlideshowFrameId, LastNavigatedUrl, targetUrl);
+        LastNavigatedUrl = targetUrl;
+    }
+
+    private static bool? ParseBoolean(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "true" or "on" or "1" => true,
+            "false" or "off" or "0" => false,
+            _ => null
+        };
+    }
+
+    private static string? GetString(JsonElement element, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (!TryGetProperty(element, key, out var property))
+            {
+                continue;
+            }
+
+            if (property.ValueKind == JsonValueKind.String)
+            {
+                return property.GetString();
+            }
+
+            if (property.ValueKind == JsonValueKind.Number || property.ValueKind == JsonValueKind.True || property.ValueKind == JsonValueKind.False)
+            {
+                return property.ToString();
+            }
+        }
+
+        return null;
+    }
+
+    private static bool? GetBool(JsonElement element, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (!TryGetProperty(element, key, out var property))
+            {
+                continue;
+            }
+
+            if (property.ValueKind == JsonValueKind.True)
+            {
+                return true;
+            }
+
+            if (property.ValueKind == JsonValueKind.False)
+            {
+                return false;
+            }
+
+            if (property.ValueKind == JsonValueKind.String)
+            {
+                return ParseBoolean(property.GetString());
+            }
+        }
+
+        return null;
+    }
+
+    private static bool TryGetProperty(JsonElement element, string propertyName, out JsonElement value)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (property.NameEquals(propertyName) || property.Name.Equals(propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private async Task OpenSettingsAsync()
+    {
+        await StopSlideshowAsync();
+        Navigation.NavigateTo("/admin");
+    }
+
+    private async Task NavigateToCurrentUrlAsync()
+    {
+        if (Websites.Count == 0)
+        {
+            return;
+        }
+
+        var currentUrl = Websites[CurrentIndex].Url;
+        await JsRuntime.InvokeVoidAsync("websiteKiosk.navigateFrame", SlideshowFrameId, LastNavigatedUrl, currentUrl);
+        LastNavigatedUrl = currentUrl;
+    }
+
+    private static bool IsValidHttpUrl(string? value)
+    {
+        return Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+    }
+
+    public void Dispose()
+    {
+        _slideshowCancellation?.Cancel();
+        _slideshowCancellation?.Dispose();
+        _integrationCancellation?.Cancel();
+        _integrationCancellation?.Dispose();
+    }
+}
