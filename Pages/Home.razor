@@ -18,8 +18,16 @@
 
         @if (ShowArrowOverlayButtons)
         {
-            <button type="button" class="slideshow-overlay-button left" aria-label="Previous URL" @onclick="GoPreviousAsync">&#8249;</button>
-            <button type="button" class="slideshow-overlay-button right" aria-label="Next URL" @onclick="GoNextAsync">&#8250;</button>
+            <button type="button" class="slideshow-overlay-button left" aria-label="Previous URL" @onclick="GoPreviousAsync">
+                <svg class="slideshow-arrow-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M14.5 5.5L8 12l6.5 6.5" />
+                </svg>
+            </button>
+            <button type="button" class="slideshow-overlay-button right" aria-label="Next URL" @onclick="GoNextAsync">
+                <svg class="slideshow-arrow-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M9.5 5.5L16 12l-6.5 6.5" />
+                </svg>
+            </button>
         }
 
         @if (ShowPauseOverlayButton)
@@ -134,7 +142,10 @@ else
 
             @if (DebugLoggingEnabled && !string.IsNullOrWhiteSpace(ResolvedCommandUrlPreview))
             {
-                <div class="admin-note mt-3">Command endpoint preview: <code>@ResolvedCommandUrlPreview</code></div>
+                <div class="admin-note mt-3">
+                    Command endpoint preview: <code>@ResolvedCommandUrlPreview</code>
+                    <a href="@ResolvedCommandUrlPreview" target="_blank" rel="noopener noreferrer" class="ms-2 text-decoration-none" aria-label="Open command endpoint preview in new tab" title="Open in new tab">🔗</a>
+                </div>
             }
 
             <div class="admin-actions mt-3">
