@@ -52,6 +52,7 @@ public partial class Home : IDisposable
     private bool DebugLoggingEnabled { get; set; }
     private bool IsConnectionTestInProgress { get; set; }
     private bool? IsConnectionTestSuccessful { get; set; }
+    private bool IsIntegrationSettingsInUse { get; set; }
     private bool ShowArrowOverlayButtons { get; set; } = true;
     private bool ShowPauseOverlayButton { get; set; } = true;
     private bool ShowSettingsOverlayButton { get; set; } = true;
@@ -410,6 +411,7 @@ public partial class Home : IDisposable
     {
         if (string.IsNullOrWhiteSpace(IntegrationSettingsUrl))
         {
+            IsIntegrationSettingsInUse = false;
             return;
         }
 
@@ -423,6 +425,7 @@ public partial class Home : IDisposable
         }
         catch
         {
+            SetPollStatus("Settings sync failed");
             return;
         }
 
@@ -430,30 +433,47 @@ public partial class Home : IDisposable
         {
             if (!response.IsSuccessStatusCode)
             {
+                SetPollStatus($"Settings HTTP {(int)response.StatusCode}");
                 return;
             }
 
             var json = await response.Content.ReadAsStringAsync(token);
             if (string.IsNullOrWhiteSpace(json))
             {
+                SetPollStatus("Settings empty body");
                 return;
             }
 
             var signature = json.Trim();
             if (string.Equals(signature, LastSettingsSignature, StringComparison.Ordinal))
             {
+                IsIntegrationSettingsInUse = true;
                 return;
             }
 
             using var doc = JsonDocument.Parse(json);
             if (doc.RootElement.ValueKind != JsonValueKind.Object)
             {
+                SetPollStatus("Settings invalid payload");
                 return;
             }
 
             ApplyIntegrationSettings(doc.RootElement);
             LastSettingsSignature = signature;
+            IsIntegrationSettingsInUse = true;
+
+            if (DebugLoggingEnabled)
+            {
+                LastPollStatus = $"Settings sync ok: {Websites.Count} URLs ({TimestampNow()})";
+            }
         }
+    }
+
+    private async Task RefreshIntegrationSettingsAsync()
+    {
+        LastSettingsSignature = null;
+        await LoadIntegrationSettingsAsync();
+        await InvokeAsync(StateHasChanged);
     }
 
     private void ApplyIntegrationSettings(JsonElement root)
@@ -465,10 +485,10 @@ public partial class Home : IDisposable
         }
 
         var loadedWebsites = PayloadService.ParseWebsites(root);
-        if (loadedWebsites.Count > 0)
+        if (HasProperty(root, "websites"))
         {
             Websites = loadedWebsites;
-            if (CurrentIndex >= Websites.Count)
+            if (CurrentIndex >= Websites.Count && Websites.Count > 0)
             {
                 CurrentIndex = 0;
             }
@@ -483,6 +503,19 @@ public partial class Home : IDisposable
 
         var screenOffUrl = PayloadService.ParseScreenOffUrl(root);
         ScreenOffUrl = EndpointService.IsValidHttpUrl(screenOffUrl) ? screenOffUrl : null;
+    }
+
+    private static bool HasProperty(JsonElement root, string propertyName)
+    {
+        foreach (var property in root.EnumerateObject())
+        {
+            if (property.NameEquals(propertyName) || property.Name.Equals(propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
 

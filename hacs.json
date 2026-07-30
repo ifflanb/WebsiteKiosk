@@ -1,0 +1,8 @@
+{
+  "name": "Website Kiosk",
+  "domains": [
+    "website_kiosk"
+  ],
+  "render_readme": true,
+  "homeassistant": "2024.6.0"
+}

@@ -111,26 +111,59 @@ public sealed class KioskPayloadService
     public List<WebsiteEntry> ParseWebsites(JsonElement root)
     {
         var loadedWebsites = new List<WebsiteEntry>();
-        if (!TryGetProperty(root, "websites", out var websitesElement)
-            || websitesElement.ValueKind != JsonValueKind.Array)
+        if (!TryGetProperty(root, "websites", out var websitesElement))
         {
             return loadedWebsites;
         }
 
+        if (websitesElement.ValueKind == JsonValueKind.String)
+        {
+            var multiline = websitesElement.GetString();
+            if (string.IsNullOrWhiteSpace(multiline))
+            {
+                return loadedWebsites;
+            }
+
+            var index = 1;
+            foreach (var line in multiline.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                loadedWebsites.Add(new WebsiteEntry { Url = line, Order = index++ });
+            }
+
+            return loadedWebsites.OrderBy(x => x.Order).ToList();
+        }
+
+        if (websitesElement.ValueKind != JsonValueKind.Array)
+        {
+            return loadedWebsites;
+        }
+
+        var fallbackOrder = 1;
         foreach (var item in websitesElement.EnumerateArray())
         {
+            if (item.ValueKind == JsonValueKind.String)
+            {
+                var rawUrl = item.GetString();
+                if (!string.IsNullOrWhiteSpace(rawUrl))
+                {
+                    loadedWebsites.Add(new WebsiteEntry { Url = rawUrl.Trim(), Order = fallbackOrder++ });
+                }
+
+                continue;
+            }
+
             if (item.ValueKind != JsonValueKind.Object)
             {
                 continue;
             }
 
             var url = GetString(item, "url");
-            if (!IsValidHttpUrl(url))
+            if (string.IsNullOrWhiteSpace(url))
             {
                 continue;
             }
 
-            var order = 1;
+            var order = fallbackOrder;
             if (TryGetProperty(item, "order", out var orderElement)
                 && orderElement.ValueKind == JsonValueKind.Number
                 && orderElement.TryGetInt32(out var parsedOrder)
@@ -139,7 +172,8 @@ public sealed class KioskPayloadService
                 order = parsedOrder;
             }
 
-            loadedWebsites.Add(new WebsiteEntry { Url = url!.Trim(), Order = order });
+            loadedWebsites.Add(new WebsiteEntry { Url = url.Trim(), Order = order });
+            fallbackOrder++;
         }
 
         return loadedWebsites.OrderBy(x => x.Order).ToList();
@@ -234,9 +268,4 @@ public sealed class KioskPayloadService
         return false;
     }
 
-    private static bool IsValidHttpUrl(string? value)
-    {
-        return Uri.TryCreate(value, UriKind.Absolute, out var uri)
-            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
-    }
 }

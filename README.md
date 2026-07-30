@@ -1,84 +1,80 @@
-# WebsiteKiosk
+# Website Kiosk
 
-Blazor WebAssembly kiosk app for rotating website dashboards, with a Home Assistant custom integration for remote control.
+Website Kiosk is a Blazor WebAssembly kiosk app plus a Home Assistant custom integration.
 
-## Prerequisites
+- Home Assistant stores kiosk device settings (rotation URLs, interval, start URL, screen-off URL).
+- The kiosk web app polls Home Assistant for settings and commands.
+
+## Install in HACS (recommended)
+
+1. Open **HACS** in Home Assistant.
+2. Go to **Integrations**.
+3. Click the menu (⋮) -> **Custom repositories**.
+4. Add this repository URL:
+
+   `https://github.com/ifflanb/WebsiteKiosk`
+
+5. Category: **Integration**.
+6. Click **Add**.
+7. Find **Website Kiosk** in HACS and click **Download**.
+8. Restart Home Assistant.
+
+Then configure it from:
+
+**Settings -> Devices & Services -> Add Integration -> Website Kiosk**
+
+## Manual integration install (alternative)
+
+Copy this folder to your HA config:
+
+`custom_components/website_kiosk` -> `/config/custom_components/website_kiosk`
+
+Restart Home Assistant and add the integration from **Settings -> Devices & Services**.
+
+## Host the kiosk website
+
+The integration only provides commands/settings endpoints. You still need to host the kiosk web app and open it on the kiosk device.
+
+### Quick local hosting example
+
+Prereqs:
 
 - .NET 10 SDK
-- Home Assistant (for integration features)
-- `dotnet-serve` tool for static hosting
+- `dotnet-serve` (`dotnet tool install -g dotnet-serve`)
 
-Install `dotnet-serve` if needed:
-
-```powershell
-dotnet tool install -g dotnet-serve
-```
-
-## Build and publish the kiosk app
-
-From the repository root:
+Publish:
 
 ```powershell
 dotnet publish -c Release -o C:\apps\WebsiteKiosk\publish
 ```
 
-## Serve the published app (LAN-accessible)
+Serve:
 
 ```powershell
 & "$env:USERPROFILE\.dotnet\tools\dotnet-serve.exe" -d C:\apps\WebsiteKiosk\publish\wwwroot -p 8080 -a 0.0.0.0
 ```
 
-Open from another device:
+Open from kiosk device:
 
-```text
-http://<host-machine-ip>:8080
-```
+`http://<kiosk-host-ip>:8080/`
 
-## Install the Home Assistant integration
+## Connect kiosk app to Home Assistant
 
-Copy this folder into your HA config directory:
+In the website settings page (`/`):
 
-```text
-custom_components/website_kiosk
-```
+- Enter **Home Assistant base URL**
+- Enter **Device identifier** (must match the integration entry)
+- Optional: **Access token**
+- Click **Save settings**
 
-Destination on HA host:
+The app uses:
 
-```text
-/config/custom_components/website_kiosk
-```
+- Command endpoint: `/api/website_kiosk/command/{device_id}`
+- Settings endpoint: `/api/website_kiosk/settings/{device_id}`
 
-Restart Home Assistant Core.
+## Required CORS setting in Home Assistant
 
-In Home Assistant UI:
-
-1. Go to **Settings -> Devices & Services**
-2. Click **Add Integration**
-3. Search for **Website Kiosk**
-4. Add a device entry (example `device_id`: `ipad_study`)
-
-## Configure kiosk app integration settings
-
-Open kiosk admin page:
-
-```text
-http://<host-machine-ip>:8080/admin
-```
-
-Set:
-
-- **Command URL**: `http://<ha-host>:8123/api/website_kiosk/command/<device_id>`
-  - Example: `http://192.168.68.117:8123/api/website_kiosk/command/ipad_study`
-- **Access token**: leave empty unless you explicitly configured one in HA
-- **Poll frequency (secs)**: e.g. `2` to `5`
-
-When Command URL is configured, runtime settings are HA-managed. The app automatically reads settings from:
-
-`http://<ha-host>:8123/api/website_kiosk/settings/<device_id>`
-
-## Home Assistant CORS configuration (required for browser-based kiosk polling)
-
-In `configuration.yaml`, allow the origin serving the kiosk app (not the iPad IP):
+In `configuration.yaml`, allow the kiosk website origin:
 
 ```yaml
 http:
@@ -87,30 +83,9 @@ http:
 	- http://<kiosk-host-ip>
 ```
 
-Example:
-
-```yaml
-http:
-  cors_allowed_origins:
-	- http://192.168.68.108:8080
-	- http://192.168.68.108
-```
-
-Restart Home Assistant after changing CORS settings.
-
-## Quick test
-
-1. In Home Assistant, open the Website Kiosk integration and configure:
-   - Rotation website URLs
-   - Rotation interval
-   - Start URL
-   - Screen-Off URL
-
-2. Start slideshow on the kiosk app.
-3. In Home Assistant, press `button.tablet_load_start_url`.
-4. Kiosk should navigate to HA-configured Start URL (or first HA website URL).
+Restart Home Assistant after updating CORS.
 
 ## Notes
 
-- `start_application` actions are Android-only by design.
-- Integration tile branding in Home Assistant may require Brands pipeline support for full icon rendering in all HA views.
+- `start_application` actions are Android-only.
+- If kiosk host IP changes, update HA CORS allowed origins.

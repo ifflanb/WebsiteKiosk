@@ -145,7 +145,7 @@ class WebsiteKioskConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 def _parse_websites(value: str) -> list[dict[str, int | str]]:
-	if "\n" not in value and "\r" not in value:
+	if "\n" not in value and "\r" not in value and "?" not in value and "&" not in value:
 		value = _split_comma_separated_urls(value)
 
 	websites: list[dict[str, int | str]] = []
