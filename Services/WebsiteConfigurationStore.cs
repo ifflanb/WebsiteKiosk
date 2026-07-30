@@ -4,10 +4,9 @@ using WebsiteKiosk.Models;
 
 namespace WebsiteKiosk.Services;
 
-public sealed class WebsiteConfigurationStore(IJSRuntime jsRuntime, HttpClient httpClient)
+public sealed class WebsiteConfigurationStore(IJSRuntime jsRuntime)
 {
     private const string StorageKey = "website-kiosk-config";
-    private const string DefaultConfigPath = "website-kiosk-config.json";
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true
@@ -41,39 +40,7 @@ public sealed class WebsiteConfigurationStore(IJSRuntime jsRuntime, HttpClient h
             }
         }
 
-        var defaultConfiguration = await LoadDefaultFromFileAsync();
-        if (defaultConfiguration.Websites.Count > 0)
-        {
-            return defaultConfiguration;
-        }
-
         return new WebsiteKioskConfiguration();
-    }
-
-    private async Task<WebsiteKioskConfiguration> LoadDefaultFromFileAsync()
-    {
-        try
-        {
-            var fileJson = await httpClient.GetStringAsync(DefaultConfigPath);
-            if (string.IsNullOrWhiteSpace(fileJson))
-            {
-                return new WebsiteKioskConfiguration();
-            }
-
-            return ParseJson(fileJson);
-        }
-        catch (HttpRequestException)
-        {
-            return new WebsiteKioskConfiguration();
-        }
-        catch (TaskCanceledException)
-        {
-            return new WebsiteKioskConfiguration();
-        }
-        catch (JsonException)
-        {
-            return new WebsiteKioskConfiguration();
-        }
     }
 
     public async Task SaveAsync(WebsiteKioskConfiguration configuration)

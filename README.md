@@ -35,14 +35,27 @@ Restart Home Assistant and add the integration from **Settings -> Devices & Serv
 
 The integration only provides commands/settings endpoints. You still need to host the kiosk web app and open it on the kiosk device.
 
-### Quick local hosting example
+1. Download the latest website release files from:
+
+   `https://github.com/ifflanb/WebsiteKiosk/releases/latest`
+
+2. Extract the release package.
+
+3. Host the extracted website files with any static web server.
+
+### Build from source (optional)
+
+Only needed if you want to build your own website package.
 
 Prereqs:
 
-- .NET 10 SDK
 - `dotnet-serve` (`dotnet tool install -g dotnet-serve`)
 
-Publish:
+Build/publish:
+
+- .NET 10 SDK
+
+Publish from source:
 
 ```powershell
 dotnet publish -c Release -o C:\apps\WebsiteKiosk\publish
