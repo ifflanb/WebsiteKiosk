@@ -10,7 +10,7 @@ param(
 	[ValidateSet("patch", "minor", "major")]
 	[string]$Increment = "patch",
 	[string]$Remote = "origin",
-	[string]$ProjectOrSolution = "WebsiteKiosk.slnx",
+	[string]$ProjectOrSolution = "WebsiteKiosk.csproj",
 	[string]$ArtifactsDirectory = "artifacts",
 	[switch]$SkipGitHubRelease,
 	[switch]$DryRun
@@ -57,26 +57,10 @@ function Invoke-ExternalCommand {
 		return $output
 	}
 
-	# Use Start-Process to avoid PowerShell treating native stderr text as exceptions.
-	$stdoutFile = [System.IO.Path]::GetTempFileName()
-	$stderrFile = [System.IO.Path]::GetTempFileName()
-	try {
-		$process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
-
-		$stdoutLines = if (Test-Path $stdoutFile) { Get-Content -Path $stdoutFile } else { @() }
-		$stderrLines = if (Test-Path $stderrFile) { Get-Content -Path $stderrFile } else { @() }
-
-		$stdoutLines | ForEach-Object { Write-Host $_ }
-		$stderrLines | ForEach-Object { Write-Host $_ }
-
-		if ($process.ExitCode -ne 0) {
-			$errorText = ($stderrLines -join [Environment]::NewLine)
-			throw "Command failed: $display`n$errorText"
-		}
-	}
-	finally {
-		Remove-Item $stdoutFile -ErrorAction SilentlyContinue
-		Remove-Item $stderrFile -ErrorAction SilentlyContinue
+	# Use Start-Process for live console output and reliable exit-code handling.
+	$process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -NoNewWindow -Wait -PassThru
+	if ($process.ExitCode -ne 0) {
+		throw "Command failed: $display (exit code $($process.ExitCode))"
 	}
 }
 
