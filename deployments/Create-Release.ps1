@@ -255,7 +255,7 @@ function Assert-GitIdentityConfigured {
 	$userEmail = (Invoke-ExternalCommand -FilePath "git" -Arguments @("config", "--get", "user.email") -CaptureOutput | Select-Object -First 1).ToString().Trim()
 
 	if ([string]::IsNullOrWhiteSpace($userName) -or [string]::IsNullOrWhiteSpace($userEmail)) {
-		throw "Git author identity is not configured. Run: git config user.name \"Your Name\" and git config user.email \"you@example.com\""
+		throw "Git author identity is not configured. Run: git config user.name 'Your Name' and git config user.email 'you@example.com'"
 	}
 }
 
