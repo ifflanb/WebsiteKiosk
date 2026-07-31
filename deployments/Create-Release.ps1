@@ -228,8 +228,13 @@ try {
 		# Check whether release already exists.
 		$releaseExists = $false
 		if (-not $DryRun) {
-			& gh release view $newTag --repo $repoSlug *> $null
-			$releaseExists = ($LASTEXITCODE -eq 0)
+			try {
+				Invoke-ExternalCommand -FilePath "gh" -Arguments @("release", "view", $newTag, "--repo", $repoSlug)
+				$releaseExists = $true
+			}
+			catch {
+				$releaseExists = $false
+			}
 		}
 
 		# Upload artifact to existing release, or create a new release with notes.
