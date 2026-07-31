@@ -12,6 +12,8 @@ param(
 	[string]$Remote = "origin",
 	[string]$ProjectOrSolution = "WebsiteKiosk.csproj",
 	[string]$ArtifactsDirectory = "artifacts",
+	[switch]$ManageIisSite,
+	[string]$IisSiteName = "WebsiteKiosk",
 	[switch]$SkipGitHubRelease,
 	[switch]$DryRun
 )
@@ -26,6 +28,81 @@ function Write-Step {
 	)
 
 	Write-Host "[Create-Release] $Message" -ForegroundColor Cyan
+}
+
+function Stop-IisSiteIfRequested {
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$SiteName
+	)
+
+	if (-not $ManageIisSite) {
+		return $false
+	}
+
+	if ($DryRun) {
+		Write-Host "[DRYRUN] Stop-Website -Name '$SiteName'"
+		return $true
+	}
+
+	$stopWebsiteCommand = Get-Command Stop-Website -ErrorAction SilentlyContinue
+	if (-not $stopWebsiteCommand) {
+		Write-Warning "IIS cmdlets not available. Install/enable IIS management tools or run without -ManageIisSite."
+		return $false
+	}
+
+	$site = Get-Website -Name $SiteName -ErrorAction SilentlyContinue
+	if (-not $site) {
+		Write-Warning "IIS site '$SiteName' was not found."
+		return $false
+	}
+
+	if ($site.State -eq "Stopped") {
+		Write-Step "IIS site '$SiteName' is already stopped."
+		return $true
+	}
+
+	Write-Step "Stopping IIS site '$SiteName'..."
+	Stop-Website -Name $SiteName
+	return $true
+}
+
+function Start-IisSiteIfRequested {
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$SiteName,
+		[Parameter(Mandatory = $true)]
+		[bool]$ShouldStart
+	)
+
+	if (-not $ShouldStart) {
+		return
+	}
+
+	if ($DryRun) {
+		Write-Host "[DRYRUN] Start-Website -Name '$SiteName'"
+		return
+	}
+
+	$startWebsiteCommand = Get-Command Start-Website -ErrorAction SilentlyContinue
+	if (-not $startWebsiteCommand) {
+		Write-Warning "IIS cmdlets not available; unable to restart IIS site '$SiteName'."
+		return
+	}
+
+	$site = Get-Website -Name $SiteName -ErrorAction SilentlyContinue
+	if (-not $site) {
+		Write-Warning "IIS site '$SiteName' was not found during restart."
+		return
+	}
+
+	if ($site.State -eq "Started") {
+		Write-Step "IIS site '$SiteName' is already started."
+		return
+	}
+
+	Write-Step "Starting IIS site '$SiteName'..."
+	Start-Website -Name $SiteName
 }
 
 # Runs external commands consistently, with optional output capture and dry-run support.
@@ -134,6 +211,7 @@ $scriptDirectory = Split-Path -Path $PSCommandPath -Parent
 $repoRoot = Resolve-Path (Join-Path $scriptDirectory "..")
 
 Push-Location $repoRoot
+$iisSiteManaged = $false
 try {
 	# Ensure script is running inside a git work tree.
 	Write-Step "Validating git repository context..."
@@ -172,6 +250,9 @@ try {
 			Remove-Item $publishDirectory -Recurse -Force
 		}
 	}
+
+	# Optionally stop IIS site to avoid file lock conflicts during publish.
+	$iisSiteManaged = Stop-IisSiteIfRequested -SiteName $IisSiteName
 
 	# Publish release build.
 	Write-Step "Publishing release build from '$ProjectOrSolution'..."
@@ -241,6 +322,8 @@ try {
 	Write-Host "Zip: $zipPath"
 }
 finally {
+	Start-IisSiteIfRequested -SiteName $IisSiteName -ShouldStart $iisSiteManaged
+
 	# Restore original working directory.
 	Pop-Location
 }
