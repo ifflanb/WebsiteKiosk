@@ -4,6 +4,7 @@
 # - Remote: git remote to push tag/release against
 # - ProjectOrSolution: .sln/.csproj to publish
 # - ArtifactsDirectory: output folder for publish + zip
+# - IntegrationManifestPath: HA integration manifest to align with release version
 # - SkipGitHubRelease: skip gh release create/upload
 # - DryRun: print commands without making changes
 param(
@@ -12,6 +13,7 @@ param(
 	[string]$Remote = "origin",
 	[string]$ProjectOrSolution = "WebsiteKiosk.csproj",
 	[string]$ArtifactsDirectory = "artifacts",
+	[string]$IntegrationManifestPath = "custom_components/website_kiosk/manifest.json",
 	[switch]$ManageIisSite,
 	[string]$IisSiteName = "WebsiteKiosk",
 	[switch]$SkipGitHubRelease,
@@ -206,6 +208,44 @@ function Get-NextVersionTag {
 	return "v$major.$minor.$patch"
 }
 
+function Set-ManifestVersion {
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$ManifestPath,
+		[Parameter(Mandatory = $true)]
+		[string]$Version
+	)
+
+	if (-not (Test-Path $ManifestPath)) {
+		throw "Manifest file not found: $ManifestPath"
+	}
+
+	$raw = Get-Content -Path $ManifestPath -Raw
+	$manifest = $raw | ConvertFrom-Json
+
+	if (-not ($manifest.PSObject.Properties.Name -contains "version")) {
+		throw "Manifest file does not contain a 'version' property: $ManifestPath"
+	}
+
+	$currentVersion = [string]$manifest.version
+	if ($currentVersion -eq $Version) {
+		Write-Step "Integration manifest version already '$Version'."
+		return $false
+	}
+
+	Write-Step "Updating integration manifest version: $currentVersion -> $Version"
+	$manifest.version = $Version
+
+	if ($DryRun) {
+		Write-Host "[DRYRUN] Update '$ManifestPath' version to '$Version'"
+		return $true
+	}
+
+	$updated = $manifest | ConvertTo-Json -Depth 20
+	Set-Content -Path $ManifestPath -Value $updated
+	return $true
+}
+
 # Resolve repository root from this script location.
 $scriptDirectory = Split-Path -Path $PSCommandPath -Parent
 $repoRoot = Resolve-Path (Join-Path $scriptDirectory "..")
@@ -228,8 +268,17 @@ try {
 	Write-Step "Calculating next semantic version tag..."
 	$allTags = Invoke-ExternalCommand -FilePath "git" -Arguments @("tag", "--list", "v*") -CaptureOutput
 	$newTag = Get-NextVersionTag -Tags $allTags -Increment $Increment
+	$newVersion = $newTag.TrimStart('v')
 
 	Write-Host "Next version tag: $newTag"
+	Write-Step "Aligning Home Assistant integration manifest to version '$newVersion'..."
+	$manifestFullPath = Join-Path $repoRoot $IntegrationManifestPath
+	$manifestUpdated = Set-ManifestVersion -ManifestPath $manifestFullPath -Version $newVersion
+	if ($manifestUpdated) {
+		Write-Step "Committing integration manifest version bump..."
+		Invoke-ExternalCommand -FilePath "git" -Arguments @("add", "--", $IntegrationManifestPath)
+		Invoke-ExternalCommand -FilePath "git" -Arguments @("commit", "-m", "chore(release): bump integration version to $newVersion")
+	}
 
 	# Create and push the new git tag.
 	Write-Step "Creating git tag '$newTag'..."
