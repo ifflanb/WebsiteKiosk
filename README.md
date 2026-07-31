@@ -1,9 +1,13 @@
 # Website Kiosk
 
+![Website Kiosk Logo](wwwroot/images/logo.png)
+
 Website Kiosk is a Blazor WebAssembly kiosk app plus a Home Assistant custom integration.
 
 - Home Assistant stores kiosk device settings (rotation URLs, interval, start URL, screen-off URL).
 - The kiosk web app polls Home Assistant for settings and commands.
+
+[![Add Integration to My Home Assistant](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start?domain=website_kiosk)
 
 ## Install in HACS (recommended)
 
@@ -35,13 +39,31 @@ Restart Home Assistant and add the integration from **Settings -> Devices & Serv
 
 The integration only provides commands/settings endpoints. You still need to host the kiosk web app and open it on the kiosk device.
 
-1. Download the latest website release files from:
+1. Open the latest release page:
 
    `https://github.com/ifflanb/WebsiteKiosk/releases/latest`
 
-2. Extract the release package.
+2. In **Assets**, download the website package zip (for example: `WebsiteKiosk-web-v0.1.2.zip`).
 
-3. Host the extracted website files with any static web server.
+3. Create a folder on your host machine, for example:
+
+   `C:\apps\WebsiteKiosk\site`
+
+4. Extract the zip contents into that folder.
+
+5. Host the extracted files with a static web server.
+
+   Example with `dotnet-serve`:
+
+   ```powershell
+   & "$env:USERPROFILE\.dotnet\tools\dotnet-serve.exe" -d C:\apps\WebsiteKiosk\site -p 8080 -a 0.0.0.0
+   ```
+
+6. Open from kiosk device:
+
+   `http://<kiosk-host-ip>:8080/`
+
+If your release zip contains a `wwwroot` folder at the top level, point the server to that folder instead.
 
 ### Build from source (optional)
 
