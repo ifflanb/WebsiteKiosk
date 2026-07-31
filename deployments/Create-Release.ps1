@@ -19,6 +19,15 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function Write-Step {
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$Message
+	)
+
+	Write-Host "[Create-Release] $Message" -ForegroundColor Cyan
+}
+
 # Runs external commands consistently, with optional output capture and dry-run support.
 function Invoke-ExternalCommand {
 	param(
@@ -143,22 +152,27 @@ $repoRoot = Resolve-Path (Join-Path $scriptDirectory "..")
 Push-Location $repoRoot
 try {
 	# Ensure script is running inside a git work tree.
+	Write-Step "Validating git repository context..."
 	Invoke-ExternalCommand -FilePath "git" -Arguments @("rev-parse", "--is-inside-work-tree") -CaptureOutput | Out-Null
 
 	# Require a clean working tree so releases are reproducible.
+	Write-Step "Checking working tree is clean..."
 	$status = Invoke-ExternalCommand -FilePath "git" -Arguments @("status", "--porcelain") -CaptureOutput
 	if (@($status).Count -gt 0) {
 		throw "Working tree is not clean. Commit or stash changes before running this script."
 	}
 
 	# Compute next semantic version tag from existing tags.
+	Write-Step "Calculating next semantic version tag..."
 	$allTags = Invoke-ExternalCommand -FilePath "git" -Arguments @("tag", "--list", "v*") -CaptureOutput
 	$newTag = Get-NextVersionTag -Tags $allTags -Increment $Increment
 
 	Write-Host "Next version tag: $newTag"
 
 	# Create and push the new git tag.
+	Write-Step "Creating git tag '$newTag'..."
 	Invoke-ExternalCommand -FilePath "git" -Arguments @("tag", $newTag)
+	Write-Step "Pushing git tag '$newTag' to remote '$Remote'..."
 	Invoke-ExternalCommand -FilePath "git" -Arguments @("push", $Remote, $newTag)
 
 	# Build output paths for publish and release artifact.
@@ -167,6 +181,7 @@ try {
 	$zipPath = Join-Path $artifactsRoot "WebsiteKiosk-web-$newTag.zip"
 
 	# Prepare artifacts directories.
+	Write-Step "Preparing artifact folders..."
 	if (-not $DryRun) {
 		New-Item -ItemType Directory -Path $artifactsRoot -Force | Out-Null
 		if (Test-Path $publishDirectory) {
@@ -175,6 +190,7 @@ try {
 	}
 
 	# Publish release build.
+	Write-Step "Publishing release build from '$ProjectOrSolution'..."
 	Invoke-ExternalCommand -FilePath "dotnet" -Arguments @("publish", $ProjectOrSolution, "-c", "Release", "-o", $publishDirectory)
 
 	# Validate expected static site output exists.
@@ -184,6 +200,7 @@ try {
 	}
 
 	# Package published website files into versioned zip artifact.
+	Write-Step "Packaging website files into '$zipPath'..."
 	if ($DryRun) {
 		Write-Host "[DRYRUN] Compress-Archive -Path '$zipSource\*' -DestinationPath '$zipPath' -Force"
 	}
@@ -197,6 +214,7 @@ try {
 
 	# Optionally create/update GitHub release and upload the zip asset.
 	if (-not $SkipGitHubRelease) {
+		Write-Step "Preparing GitHub release upload..."
 		# Verify GitHub CLI availability.
 		$ghCommand = Get-Command gh -ErrorAction SilentlyContinue
 		if (-not $ghCommand) {
@@ -216,13 +234,19 @@ try {
 
 		# Upload artifact to existing release, or create a new release with notes.
 		if ($releaseExists) {
+			Write-Step "Uploading asset to existing GitHub release '$newTag'..."
 			Invoke-ExternalCommand -FilePath "gh" -Arguments @("release", "upload", $newTag, $zipPath, "--repo", $repoSlug, "--clobber")
 		}
 		else {
+			Write-Step "Creating GitHub release '$newTag' and uploading asset..."
 			Invoke-ExternalCommand -FilePath "gh" -Arguments @("release", "create", $newTag, $zipPath, "--repo", $repoSlug, "--title", $newTag, "--generate-notes")
 		}
 	}
+	else {
+		Write-Step "Skipping GitHub release creation/upload (SkipGitHubRelease=true)."
+	}
 
+	Write-Step "Release automation complete."
 	Write-Host "Release automation complete."
 	Write-Host "Tag: $newTag"
 	Write-Host "Zip: $zipPath"
