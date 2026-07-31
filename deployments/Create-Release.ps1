@@ -89,7 +89,7 @@ function Get-NextVersionTag {
 		}
 	}
 
-	if (-not $parsedTags -or $parsedTags.Count -eq 0) {
+	if (-not $parsedTags -or @($parsedTags).Count -eq 0) {
 		return "v0.1.0"
 	}
 
@@ -130,7 +130,7 @@ try {
 
 	# Require a clean working tree so releases are reproducible.
 	$status = Invoke-ExternalCommand -FilePath "git" -Arguments @("status", "--porcelain") -CaptureOutput
-	if ($status.Count -gt 0) {
+	if (@($status).Count -gt 0) {
 		throw "Working tree is not clean. Commit or stash changes before running this script."
 	}
 
