@@ -48,7 +48,13 @@ function Invoke-ExternalCommand {
 		return $output
 	}
 
-	& $FilePath @Arguments
+	# Git and other native tools can write normal progress info to stderr.
+	# Capture both streams to avoid PowerShell treating stderr text as a terminating error.
+	$output = & $FilePath @Arguments 2>&1
+	if ($output) {
+		$output | ForEach-Object { Write-Host $_ }
+	}
+
 	if ($LASTEXITCODE -ne 0) {
 		throw "Command failed: $display"
 	}
