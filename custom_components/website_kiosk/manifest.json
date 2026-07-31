@@ -1,16 +1,20 @@
 {
-  "domain": "website_kiosk",
-  "name": "Website Kiosk",
-  "version": "0.1.1",
-  "homeassistant": "2024.6.0",
-  "documentation": "https://github.com/ifflanb/WebsiteKiosk",
-  "issue_tracker": "https://github.com/ifflanb/WebsiteKiosk/issues",
-  "iot_class": "local_polling",
-  "integration_type": "hub",
-  "codeowners": [
-    "@ifflanb"
-  ],
-  "requirements": [],
-  "dependencies": [],
-  "config_flow": true
+    "domain":  "website_kiosk",
+    "name":  "Website Kiosk",
+    "version":  "0.1.6",
+    "homeassistant":  "2024.6.0",
+    "documentation":  "https://github.com/ifflanb/WebsiteKiosk",
+    "issue_tracker":  "https://github.com/ifflanb/WebsiteKiosk/issues",
+    "iot_class":  "local_polling",
+    "integration_type":  "hub",
+    "codeowners":  [
+                       "@ifflanb"
+                   ],
+    "requirements":  [
+
+                     ],
+    "dependencies":  [
+
+                     ],
+    "config_flow":  true
 }

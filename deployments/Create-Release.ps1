@@ -242,8 +242,21 @@ function Set-ManifestVersion {
 	}
 
 	$updated = $manifest | ConvertTo-Json -Depth 20
-	Set-Content -Path $ManifestPath -Value $updated
+	Set-Content -Path $ManifestPath -Value $updated -Encoding utf8
 	return $true
+}
+
+function Assert-GitIdentityConfigured {
+	if ($DryRun) {
+		return
+	}
+
+	$userName = (Invoke-ExternalCommand -FilePath "git" -Arguments @("config", "--get", "user.name") -CaptureOutput | Select-Object -First 1).ToString().Trim()
+	$userEmail = (Invoke-ExternalCommand -FilePath "git" -Arguments @("config", "--get", "user.email") -CaptureOutput | Select-Object -First 1).ToString().Trim()
+
+	if ([string]::IsNullOrWhiteSpace($userName) -or [string]::IsNullOrWhiteSpace($userEmail)) {
+		throw "Git author identity is not configured. Run: git config user.name \"Your Name\" and git config user.email \"you@example.com\""
+	}
 }
 
 # Resolve repository root from this script location.
@@ -276,8 +289,9 @@ try {
 	$manifestUpdated = Set-ManifestVersion -ManifestPath $manifestFullPath -Version $newVersion
 	if ($manifestUpdated) {
 		Write-Step "Committing integration manifest version bump..."
+		Assert-GitIdentityConfigured
 		Invoke-ExternalCommand -FilePath "git" -Arguments @("add", "--", $IntegrationManifestPath)
-		Invoke-ExternalCommand -FilePath "git" -Arguments @("commit", "-m", "chore(release): bump integration version to $newVersion")
+		Invoke-ExternalCommand -FilePath "git" -Arguments @("commit", "-m", "chore(release): bump integration version to $newVersion") -CaptureOutput | Out-Null
 	}
 
 	# Create and push the new git tag.
