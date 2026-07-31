@@ -48,15 +48,26 @@ function Invoke-ExternalCommand {
 		return $output
 	}
 
-	# Git and other native tools can write normal progress info to stderr.
-	# Capture both streams to avoid PowerShell treating stderr text as a terminating error.
-	$output = & $FilePath @Arguments 2>&1
-	if ($output) {
-		$output | ForEach-Object { Write-Host $_ }
-	}
+	# Use Start-Process to avoid PowerShell treating native stderr text as exceptions.
+	$stdoutFile = [System.IO.Path]::GetTempFileName()
+	$stderrFile = [System.IO.Path]::GetTempFileName()
+	try {
+		$process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
 
-	if ($LASTEXITCODE -ne 0) {
-		throw "Command failed: $display"
+		$stdoutLines = if (Test-Path $stdoutFile) { Get-Content -Path $stdoutFile } else { @() }
+		$stderrLines = if (Test-Path $stderrFile) { Get-Content -Path $stderrFile } else { @() }
+
+		$stdoutLines | ForEach-Object { Write-Host $_ }
+		$stderrLines | ForEach-Object { Write-Host $_ }
+
+		if ($process.ExitCode -ne 0) {
+			$errorText = ($stderrLines -join [Environment]::NewLine)
+			throw "Command failed: $display`n$errorText"
+		}
+	}
+	finally {
+		Remove-Item $stdoutFile -ErrorAction SilentlyContinue
+		Remove-Item $stderrFile -ErrorAction SilentlyContinue
 	}
 }
 
@@ -132,7 +143,7 @@ $repoRoot = Resolve-Path (Join-Path $scriptDirectory "..")
 Push-Location $repoRoot
 try {
 	# Ensure script is running inside a git work tree.
-	Invoke-ExternalCommand -FilePath "git" -Arguments @("rev-parse", "--is-inside-work-tree") | Out-Null
+	Invoke-ExternalCommand -FilePath "git" -Arguments @("rev-parse", "--is-inside-work-tree") -CaptureOutput | Out-Null
 
 	# Require a clean working tree so releases are reproducible.
 	$status = Invoke-ExternalCommand -FilePath "git" -Arguments @("status", "--porcelain") -CaptureOutput
