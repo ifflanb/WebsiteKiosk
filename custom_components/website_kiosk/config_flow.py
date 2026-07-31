@@ -37,7 +37,7 @@ class WebsiteKioskConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 			start_url = _clean_optional_text(user_input.get(ATTR_START_URL))
 			screen_off_url = _clean_optional_text(user_input.get(ATTR_SCREEN_OFF_URL))
 
-			await self.async_set_unique_id(device_id)
+			await self.async_set_unique_id(_device_id_key(device_id))
 			self._abort_if_unique_id_configured()
 
 			return self.async_create_entry(
@@ -102,7 +102,7 @@ class WebsiteKioskConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 						ATTR_START_URL: start_url,
 						ATTR_SCREEN_OFF_URL: screen_off_url,
 					},
-					unique_id=device_id,
+					unique_id=_device_id_key(device_id),
 				)
 				await self.hass.config_entries.async_reload(entry.entry_id)
 				return self.async_abort(reason="reconfigure_successful")
@@ -133,12 +133,13 @@ class WebsiteKioskConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 		return self.async_show_form(step_id="reconfigure", data_schema=schema, errors=errors)
 
 	def _is_device_id_used_by_other_entry(self, device_id: str, current_entry_id: str) -> bool:
+		target_key = _device_id_key(device_id)
 		for existing in self.hass.config_entries.async_entries(DOMAIN):
 			if existing.entry_id == current_entry_id:
 				continue
 
 			existing_device_id = str(existing.data.get(CONF_DEVICE_ID, "")).strip()
-			if existing_device_id == device_id:
+			if _device_id_key(existing_device_id) == target_key:
 				return True
 
 		return False
@@ -201,3 +202,7 @@ def _clean_optional_text(value: object) -> str | None:
 
 	cleaned = value.strip()
 	return cleaned or None
+
+
+def _device_id_key(value: object) -> str:
+	return str(value).strip().casefold()

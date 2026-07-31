@@ -17,32 +17,66 @@ class CommandStore:
 	def __init__(self) -> None:
 		self._lock = Lock()
 		self._device_tokens: dict[str, str | None] = {}
+		self._device_lookup: dict[str, str] = {}
 		self._pending_by_device: dict[str, PendingCommand] = {}
 		self._settings_by_device: dict[str, dict[str, Any]] = {}
 
 	def set_device_token(self, device_id: str, token: str | None) -> None:
+		normalized = _normalize_device_id(device_id)
+		if not normalized:
+			return
+
 		with self._lock:
-			self._device_tokens[device_id] = token
+			resolved = self._resolve_device_id_locked(normalized)
+			if resolved is None:
+				self._device_tokens[normalized] = token
+				self._settings_by_device.setdefault(normalized, _default_settings())
+				self._device_lookup[_device_lookup_key(normalized)] = normalized
+				return
+
+			self._device_tokens[resolved] = token
 
 	def register_device(self, device_id: str, token: str | None) -> bool:
 		"""Register a device. Returns False if it already exists."""
+		normalized = _normalize_device_id(device_id)
+		if not normalized:
+			return False
+
 		with self._lock:
-			if device_id in self._device_tokens:
+			if self._resolve_device_id_locked(normalized) is not None:
 				return False
 
-			self._device_tokens[device_id] = token
-			self._settings_by_device.setdefault(device_id, _default_settings())
+			self._device_tokens[normalized] = token
+			self._settings_by_device.setdefault(normalized, _default_settings())
+			self._device_lookup[_device_lookup_key(normalized)] = normalized
 			return True
 
 	def unregister_device(self, device_id: str) -> None:
+		normalized = _normalize_device_id(device_id)
+		if not normalized:
+			return
+
 		with self._lock:
-			self._device_tokens.pop(device_id, None)
-			self._pending_by_device.pop(device_id, None)
-			self._settings_by_device.pop(device_id, None)
+			resolved = self._resolve_device_id_locked(normalized)
+			if resolved is None:
+				return
+
+			self._device_tokens.pop(resolved, None)
+			self._pending_by_device.pop(resolved, None)
+			self._settings_by_device.pop(resolved, None)
+			self._device_lookup.pop(_device_lookup_key(resolved), None)
 
 	def is_authorized(self, device_id: str, token: str | None) -> bool:
+		normalized = _normalize_device_id(device_id)
+		if not normalized:
+			return False
+
 		with self._lock:
-			expected = self._device_tokens.get(device_id)
+			resolved = self._resolve_device_id_locked(normalized)
+			if resolved is None:
+				return False
+
+			expected = self._device_tokens.get(resolved)
 
 		if expected is None:
 			return True
@@ -50,6 +84,10 @@ class CommandStore:
 		return token == expected
 
 	def enqueue(self, device_id: str, command: str, **data: Any) -> str:
+		normalized = _normalize_device_id(device_id)
+		if not normalized:
+			raise KeyError(device_id)
+
 		command_id = str(uuid4())
 		payload: dict[str, Any] = {
 			"id": command_id,
@@ -58,48 +96,100 @@ class CommandStore:
 		payload.update({key: value for key, value in data.items() if value is not None})
 
 		with self._lock:
-			self._pending_by_device[device_id] = PendingCommand(payload=payload)
+			resolved = self._resolve_device_id_locked(normalized)
+			if resolved is None:
+				raise KeyError(device_id)
+
+			self._pending_by_device[resolved] = PendingCommand(payload=payload)
 
 		return command_id
 
 	def dequeue(self, device_id: str) -> dict[str, Any] | None:
+		normalized = _normalize_device_id(device_id)
+		if not normalized:
+			return None
+
 		with self._lock:
-			pending = self._pending_by_device.pop(device_id, None)
+			resolved = self._resolve_device_id_locked(normalized)
+			if resolved is None:
+				return None
+
+			pending = self._pending_by_device.pop(resolved, None)
 
 		return pending.payload if pending else None
 
 	def has_device(self, device_id: str) -> bool:
+		normalized = _normalize_device_id(device_id)
+		if not normalized:
+			return False
+
 		with self._lock:
-			return device_id in self._device_tokens
+			return self._resolve_device_id_locked(normalized) is not None
 
 	def device_ids(self) -> list[str]:
 		with self._lock:
 			return list(self._device_tokens.keys())
 
 	def ensure_device(self, device_id: str) -> None:
+		normalized = _normalize_device_id(device_id)
+		if not normalized:
+			return
+
 		with self._lock:
-			self._device_tokens.setdefault(device_id, None)
-			self._settings_by_device.setdefault(device_id, _default_settings())
+			resolved = self._resolve_device_id_locked(normalized)
+			if resolved is not None:
+				self._device_tokens.setdefault(resolved, None)
+				self._settings_by_device.setdefault(resolved, _default_settings())
+				return
+
+			self._device_tokens.setdefault(normalized, None)
+			self._settings_by_device.setdefault(normalized, _default_settings())
+			self._device_lookup[_device_lookup_key(normalized)] = normalized
 
 	def set_settings(self, device_id: str, settings: dict[str, Any]) -> dict[str, Any]:
 		"""Replace settings for a device with normalized values."""
+		normalized_device_id = _normalize_device_id(device_id)
+		if not normalized_device_id:
+			raise KeyError(device_id)
+
 		normalized = _normalize_settings(settings)
 		with self._lock:
-			if device_id not in self._device_tokens:
+			resolved = self._resolve_device_id_locked(normalized_device_id)
+			if resolved is None:
 				raise KeyError(device_id)
 
-			self._settings_by_device[device_id] = normalized
+			self._settings_by_device[resolved] = normalized
 
 		return normalized.copy()
 
 	def get_settings(self, device_id: str) -> dict[str, Any] | None:
+		normalized = _normalize_device_id(device_id)
+		if not normalized:
+			return None
+
 		with self._lock:
-			settings = self._settings_by_device.get(device_id)
+			resolved = self._resolve_device_id_locked(normalized)
+			if resolved is None:
+				return None
+
+			settings = self._settings_by_device.get(resolved)
 
 		if settings is None:
 			return None
 
 		return settings.copy()
+
+	def _resolve_device_id_locked(self, device_id: str) -> str | None:
+		lookup_key = _device_lookup_key(device_id)
+		resolved = self._device_lookup.get(lookup_key)
+		if resolved is None:
+			return None
+
+		if resolved not in self._device_tokens:
+			self._device_lookup.pop(lookup_key, None)
+			return None
+
+		return resolved
 
 
 def _default_settings() -> dict[str, Any]:
@@ -170,3 +260,11 @@ def _normalize_settings(settings: dict[str, Any]) -> dict[str, Any]:
 		"start_url": start_url,
 		"screen_off_url": screen_off_url,
 	}
+
+
+def _normalize_device_id(value: object) -> str:
+	return str(value).strip()
+
+
+def _device_lookup_key(device_id: str) -> str:
+	return device_id.casefold()

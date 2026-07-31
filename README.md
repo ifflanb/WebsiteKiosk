@@ -111,6 +111,10 @@ The app uses:
 
 In `configuration.yaml`, allow the kiosk website origin:
 
+If you're using the Home Assistant UI instead of editing YAML directly, CORS settings are now under:
+
+**Settings -> System -> Network**
+
 ```yaml
 http:
   cors_allowed_origins:
